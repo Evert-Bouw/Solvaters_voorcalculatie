@@ -399,6 +399,7 @@ export default function AppPage() {
   const [libraryQuotations, setLibraryQuotations] = useState<Quotation[]>([]);
   const [libraryLines, setLibraryLines] = useState<QuotationLine[]>([]);
   const [saving, setSaving] = useState(false);
+  const [showSaveSuccess, setShowSaveSuccess] = useState(false);
   const [saveError, setSaveError] = useState('');
   const [hasPendingAggregateMarkupChanges, setHasPendingAggregateMarkupChanges] = useState(false);
   const [iframeSession, setIframeSession] = useState<IframeSessionProfile | null>(null);
@@ -440,6 +441,7 @@ export default function AppPage() {
   const draggedLineIdsRef = useRef<string[]>([]);
   const pointerDragDropHandledRef = useRef(false);
   const saveInFlightRef = useRef(false);
+  const saveSuccessTimeoutRef = useRef<number | null>(null);
   const previousSelectedQuotationIdsRef = useRef<string[]>([]);
   const itemSearchRequestRef = useRef(0);
   const creditorSearchRequestRef = useRef(0);
@@ -716,6 +718,13 @@ export default function AppPage() {
       window.removeEventListener('mousemove', onMouseMove);
       window.removeEventListener('mouseup', onMouseUp);
     };
+  }, []);
+
+  useEffect(() => () => {
+    if (saveSuccessTimeoutRef.current) {
+      window.clearTimeout(saveSuccessTimeoutRef.current);
+      saveSuccessTimeoutRef.current = null;
+    }
   }, []);
 
   useEffect(() => {
@@ -1062,6 +1071,34 @@ export default function AppPage() {
     () => quotations.filter((quotation) => selectedQuotationIds.includes(quotation.id)),
     [quotations, selectedQuotationIds],
   );
+
+  const sessionStatusSummary = useMemo(() => {
+    const selectedLocks = selectedQuotationIds.map((quotationId) => quotationLocks[quotationId]).filter(Boolean);
+    const ownedCount = selectedLocks.filter((lockState) => lockState?.mine).length;
+    const blockedCount = selectedLocks.filter((lockState) => lockState?.lock && !lockState.mine).length;
+
+    if (iframeContextMode === 'method1' && iframeSession?.sessionId) {
+      return {
+        modeLabel: 'Locks actief',
+        modeClassName: 'text-emerald-700',
+        detail: `${ownedCount} van jou${blockedCount ? `, ${blockedCount} bezet` : ''}`,
+      };
+    }
+
+    if (iframeContextMode === 'method2') {
+      return {
+        modeLabel: 'Classic modus',
+        modeClassName: 'text-sky-700',
+        detail: 'geen gebruikerslocks',
+      };
+    }
+
+    return {
+      modeLabel: 'Geen sessieprofiel',
+      modeClassName: 'text-amber-700',
+      detail: 'locks niet beschikbaar',
+    };
+  }, [iframeContextMode, iframeSession?.sessionId, quotationLocks, selectedQuotationIds]);
 
   function getLockedQuotationInfo(quotationId: string) {
     if (iframeContextMode !== 'method1' || !iframeSession?.sessionId) return null;
@@ -1658,6 +1695,11 @@ export default function AppPage() {
       return;
     }
     saveInFlightRef.current = true;
+    if (saveSuccessTimeoutRef.current) {
+      window.clearTimeout(saveSuccessTimeoutRef.current);
+      saveSuccessTimeoutRef.current = null;
+    }
+    setShowSaveSuccess(false);
     setSaving(true);
     setSaveError('');
     try {
@@ -1857,6 +1899,11 @@ export default function AppPage() {
       setAggregateMarkupsByGroup(nextAggregateMarkupsByGroup);
       setDraftLines(visibleRefreshed.map((line) => ({ ...line, draftState: 'clean' as DraftState })));
       setHasPendingAggregateMarkupChanges(false);
+      setShowSaveSuccess(true);
+      saveSuccessTimeoutRef.current = window.setTimeout(() => {
+        setShowSaveSuccess(false);
+        saveSuccessTimeoutRef.current = null;
+      }, 1400);
     } catch (error) {
       setSaveError((error as Error).message);
     } finally {
@@ -4049,15 +4096,25 @@ export default function AppPage() {
 
   return (
     <div className="flex h-screen flex-col overflow-hidden bg-slate-100 p-3">
-      {saving ? (
+      {saving || showSaveSuccess ? (
         <div className="absolute inset-0 z-50 flex items-center justify-center bg-slate-900/20 backdrop-blur-[1px]">
-          <div className="flex min-w-[240px] items-center gap-3 rounded-lg border border-slate-200 bg-white px-5 py-4 shadow-lg">
-            <span className="inline-block h-5 w-5 animate-spin rounded-full border-2 border-brand-600 border-t-transparent" aria-hidden="true" />
-            <div>
-              <p className="text-sm font-semibold text-slate-800">Opslaan in uitvoering</p>
-              <p className="text-xs text-slate-600">De wijzigingen worden nu verwerkt.</p>
+          {saving ? (
+            <div className="flex min-w-[240px] items-center gap-3 rounded-lg border border-slate-200 bg-white px-5 py-4 shadow-lg">
+              <span className="inline-block h-5 w-5 animate-spin rounded-full border-2 border-brand-600 border-t-transparent" aria-hidden="true" />
+              <div>
+                <p className="text-sm font-semibold text-slate-800">Opslaan in uitvoering</p>
+                <p className="text-xs text-slate-600">De wijzigingen worden nu verwerkt.</p>
+              </div>
             </div>
-          </div>
+          ) : (
+            <div className="flex min-w-[220px] items-center gap-3 rounded-lg border border-emerald-200 bg-white px-5 py-4 shadow-lg">
+              <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-emerald-100 text-sm font-bold text-emerald-700" aria-hidden="true">✓</span>
+              <div>
+                <p className="text-sm font-semibold text-emerald-800">Opgeslagen</p>
+                <p className="text-xs text-slate-600">Wijzigingen zijn verwerkt.</p>
+              </div>
+            </div>
+          )}
         </div>
       ) : null}
       <header className="mb-3 flex flex-none flex-wrap items-center justify-between gap-3 rounded-lg bg-white p-4 shadow-sm">
@@ -4070,7 +4127,16 @@ export default function AppPage() {
                 {selectableProjects.map((option) => (<option key={option.id} value={option.id}>{option.id} - {option.name}</option>))}
               </select>
             ) : null}
-            <h1 className="text-xl font-semibold text-slate-800">{project ? `${project.id} - ${project.name}` : 'Nog geen project geselecteerd'}</h1>
+            <div className="min-w-0">
+              <h1 className="text-xl font-semibold text-slate-800">{project ? `${project.id} - ${project.name}` : 'Nog geen project geselecteerd'}</h1>
+              {project ? (
+                <div className="mt-0.5 flex flex-wrap items-center gap-2 text-[11px] text-slate-500">
+                  <span className={`font-medium ${sessionStatusSummary.modeClassName}`}>{sessionStatusSummary.modeLabel}</span>
+                  <span aria-hidden="true">•</span>
+                  <span>{sessionStatusSummary.detail}</span>
+                </div>
+              ) : null}
+            </div>
             {iframeSession ? (
               <span className="rounded border border-emerald-200 bg-emerald-50 px-2 py-1 text-xs text-emerald-700">
                 Ingelogd als {iframeSession.userId}
