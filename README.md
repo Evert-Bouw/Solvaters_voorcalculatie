@@ -188,6 +188,8 @@ Voorbeeld voor app `solvaters-voorcalculatie`, omgeving `93567`:
 - `afas-solvaters-voorcalculatie-93567-encryption-key`
 - `afas-solvaters-voorcalculatie-93567-azure-table-storage-connection-string`
 
+De deploymentworkflow maakt ontbrekende secret-namen automatisch aan met placeholderwaarde `__SET_REAL_VALUE__`. Daarna hoeven alleen de echte waarden nog in Key Vault ingevuld te worden.
+
 De workflow:
 
 - rolt App Service Plan, Web App en Static Web App uit of werkt ze bij

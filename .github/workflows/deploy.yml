@@ -96,6 +96,34 @@ jobs:
               afasOauthRedirectUri="$AFAS_OAUTH_REDIRECT_URI" \
               afasOauthScope="$AFAS_OAUTH_SCOPE"
 
+      - name: Ensure Key Vault secret placeholders
+        run: |
+          PREFIX="afas-${AFAS_SECRET_APP_NAME}-${AFAS_SECRET_ENVIRONMENT_NUMBER}"
+          SECRETS=(
+            "${PREFIX}-environment-id"
+            "${PREFIX}-environment-type"
+            "${PREFIX}-token"
+            "${PREFIX}-publickey-secrets"
+            "${PREFIX}-oauth-client-id"
+            "${PREFIX}-oauth-client-secret"
+            "${PREFIX}-encryption-key"
+            "${PREFIX}-azure-table-storage-connection-string"
+          )
+
+          for SECRET_NAME in "${SECRETS[@]}"; do
+            if az keyvault secret show --vault-name "$AZURE_KEY_VAULT_NAME" --name "$SECRET_NAME" >/dev/null 2>&1; then
+              echo "Secret exists: $SECRET_NAME"
+            else
+              echo "Creating placeholder secret: $SECRET_NAME"
+              az keyvault secret set \
+                --vault-name "$AZURE_KEY_VAULT_NAME" \
+                --name "$SECRET_NAME" \
+                --value "__SET_REAL_VALUE__" \
+                --content-type "placeholder" \
+                --tags "managed-by=github-actions" "app=${AFAS_SECRET_APP_NAME}" "environment-number=${AFAS_SECRET_ENVIRONMENT_NUMBER}" >/dev/null
+            fi
+          done
+
       - name: Prepare backend package
         run: |
           rm -rf .deploy/backend-package backend-package.zip

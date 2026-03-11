@@ -28,6 +28,7 @@
 - Rights to read Key Vault secrets and manage deployments in the resource group
 
 The workflow creates or updates the Web App, App Service plan and Static Web App, then deploys backend and frontend.
+It also creates missing Key Vault secret names with placeholder value `__SET_REAL_VALUE__`, so you only need to replace the values afterward.
 
 Required Key Vault secrets for the backend include at least:
 

@@ -69,6 +69,9 @@ Toelichting:
 
 Deze secrets moeten in `solvaters-kluis` aanwezig zijn.
 
+De GitHub workflow maakt ontbrekende secret-namen automatisch aan met placeholderwaarde `__SET_REAL_VALUE__`.
+Je hoeft de namen dus niet handmatig aan te maken, alleen daarna de echte waarden in te vullen.
+
 Verwachte secret-namen volgens het schaalbare patroon:
 
 - `afas-solvaters-voorcalculatie-93567-environment-id`
@@ -90,6 +93,12 @@ Aanbevolen invulling:
 - `...-oauth-client-secret`: AFAS OAuth client secret
 - `...-encryption-key`: sterke geheime sleutel voor app-level encryptie van OAuth access/refresh tokens in Table Storage
 - `...-azure-table-storage-connection-string`: connection string van `solvatersopslag`
+
+Na de eerste deployment:
+
+1. open `solvaters-kluis`
+2. zoek op `afas-solvaters-voorcalculatie-93567-`
+3. vervang elke placeholder `__SET_REAL_VALUE__` door de echte secretwaarde
 
 ## Entra ID / rechten
 
