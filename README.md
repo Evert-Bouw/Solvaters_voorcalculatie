@@ -88,6 +88,7 @@ Voor schrijven via `OAuth namens gebruiker` zijn daarnaast nodig:
 - `AFAS_OAUTH_CLIENT_SECRET`
 - `AFAS_OAUTH_REDIRECT_URI`
 - optioneel: `AFAS_OAUTH_SCOPE`
+- `AFAS_ENCRYPTION_KEY`
 
 Voor persistente OAuth-sessies in Azure Table Storage:
 
@@ -111,6 +112,7 @@ Belangrijke backend-variabelen:
   - `AFAS_OAUTH_CLIENT_SECRET`
   - `AFAS_OAUTH_REDIRECT_URI`
   - `AFAS_OAUTH_SCOPE`
+  - `AFAS_ENCRYPTION_KEY`
   - `AZURE_TABLE_STORAGE_CONNECTION_STRING`
   - `AZURE_TABLE_STORAGE_OAUTH_STATE_TABLE`
   - `AZURE_TABLE_STORAGE_OAUTH_SESSION_TABLE`
@@ -170,6 +172,7 @@ Verwachte Key Vault secrets:
 - `AFAS-PUBLICKEY-SECRETS`
 - `AFAS-OAUTH-CLIENT-ID`
 - `AFAS-OAUTH-CLIENT-SECRET`
+- `AFAS-ENCRYPTION-KEY`
 - `AZURE-TABLE-STORAGE-CONNECTION-STRING`
 
 De workflow:
@@ -575,6 +578,7 @@ Belangrijk:
 - schrijven volgt de globale app-instelling
 - bij `OAuth namens gebruiker` moet de huidige browser eerst via AFAS aangemeld zijn
 - als `AZURE_TABLE_STORAGE_CONNECTION_STRING` is ingevuld, worden OAuth states en gebruikerssessies persistent in Azure Table Storage opgeslagen
+- access en refresh tokens in Table Storage worden extra versleuteld met `AFAS_ENCRYPTION_KEY`
 - zonder die storage-config valt de backend automatisch terug op in-memory OAuth-opslag
 
 ### Functionele schakelaars

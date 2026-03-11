@@ -75,6 +75,7 @@ Verwachte secret-namen:
 - `AFAS-PUBLICKEY-SECRETS`
 - `AFAS-OAUTH-CLIENT-ID`
 - `AFAS-OAUTH-CLIENT-SECRET`
+- `AFAS-ENCRYPTION-KEY`
 - `AZURE-TABLE-STORAGE-CONNECTION-STRING`
 
 Aanbevolen invulling:
@@ -85,6 +86,7 @@ Aanbevolen invulling:
 - `AFAS-PUBLICKEY-SECRETS`: JSON zoals `{"<publickey>":"<secret>"}`
 - `AFAS-OAUTH-CLIENT-ID`: AFAS OAuth client id
 - `AFAS-OAUTH-CLIENT-SECRET`: AFAS OAuth client secret
+- `AFAS-ENCRYPTION-KEY`: sterke geheime sleutel voor app-level encryptie van OAuth access/refresh tokens in Table Storage
 - `AZURE-TABLE-STORAGE-CONNECTION-STRING`: connection string van `solvatersopslag`
 
 ## Entra ID / rechten

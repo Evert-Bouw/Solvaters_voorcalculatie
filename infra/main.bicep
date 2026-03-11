@@ -47,6 +47,9 @@ param afasOauthClientIdSecretName string = 'AFAS-OAUTH-CLIENT-ID'
 @description('Name of the Key Vault secret that contains AFAS_OAUTH_CLIENT_SECRET.')
 param afasOauthClientSecretSecretName string = 'AFAS-OAUTH-CLIENT-SECRET'
 
+@description('Name of the Key Vault secret that contains AFAS_ENCRYPTION_KEY.')
+param afasEncryptionKeySecretName string = 'AFAS-ENCRYPTION-KEY'
+
 @description('Name of the Key Vault secret that contains AZURE_TABLE_STORAGE_CONNECTION_STRING.')
 param azureTableStorageConnectionStringSecretName string = 'AZURE-TABLE-STORAGE-CONNECTION-STRING'
 
@@ -129,6 +132,10 @@ resource webApp 'Microsoft.Web/sites@2023-12-01' = {
         {
           name: 'AFAS_OAUTH_CLIENT_SECRET'
           value: '@Microsoft.KeyVault(SecretUri=${keyVaultSecretUriBase}/${afasOauthClientSecretSecretName})'
+        }
+        {
+          name: 'AFAS_ENCRYPTION_KEY'
+          value: '@Microsoft.KeyVault(SecretUri=${keyVaultSecretUriBase}/${afasEncryptionKeySecretName})'
         }
         {
           name: 'AFAS_OAUTH_REDIRECT_URI'

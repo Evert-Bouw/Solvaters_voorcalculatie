@@ -26,3 +26,14 @@
 - Rights to read Key Vault secrets and manage deployments in the resource group
 
 The workflow creates or updates the Web App, App Service plan and Static Web App, then deploys backend and frontend.
+
+Required Key Vault secrets for the backend include at least:
+
+- `AFAS-ENVIRONMENT-ID`
+- `AFAS-ENVIRONMENT-TYPE`
+- `AFAS-TOKEN`
+- `AFAS-PUBLICKEY-SECRETS`
+- `AFAS-OAUTH-CLIENT-ID`
+- `AFAS-OAUTH-CLIENT-SECRET`
+- `AFAS-ENCRYPTION-KEY`
+- `AZURE-TABLE-STORAGE-CONNECTION-STRING`

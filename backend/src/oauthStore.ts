@@ -1,4 +1,5 @@
 import { TableClient } from '@azure/data-tables';
+import { createCipheriv, createDecipheriv, createHash, randomBytes } from 'crypto';
 
 export type PendingAfasOAuthState = {
   appSessionId: string;
@@ -55,6 +56,11 @@ type OAuthStore = {
   deleteSession(appSessionId: string): Promise<void>;
 };
 
+type TokenCipher = {
+  encrypt(plainText: string): string;
+  decrypt(cipherText: string): string;
+};
+
 function createMemoryOAuthStore(oauthStateTtlMs: number): OAuthStore {
   const pendingStates = new Map<string, PendingAfasOAuthState>();
   const sessions = new Map<string, AfasOAuthSession>();
@@ -95,11 +101,37 @@ function createMemoryOAuthStore(oauthStateTtlMs: number): OAuthStore {
   };
 }
 
+function createTokenCipher(secret: string): TokenCipher {
+  const key = createHash('sha256').update(secret, 'utf8').digest();
+
+  return {
+    encrypt(plainText: string) {
+      const iv = randomBytes(12);
+      const cipher = createCipheriv('aes-256-gcm', key, iv);
+      const encrypted = Buffer.concat([cipher.update(plainText, 'utf8'), cipher.final()]);
+      const tag = cipher.getAuthTag();
+      return `${iv.toString('base64')}.${tag.toString('base64')}.${encrypted.toString('base64')}`;
+    },
+    decrypt(cipherText: string) {
+      const [ivBase64, tagBase64, encryptedBase64] = cipherText.split('.');
+      if (!ivBase64 || !tagBase64 || !encryptedBase64) throw new Error('Ongeldig versleuteld tokenformaat.');
+      const decipher = createDecipheriv('aes-256-gcm', key, Buffer.from(ivBase64, 'base64'));
+      decipher.setAuthTag(Buffer.from(tagBase64, 'base64'));
+      const decrypted = Buffer.concat([
+        decipher.update(Buffer.from(encryptedBase64, 'base64')),
+        decipher.final(),
+      ]);
+      return decrypted.toString('utf8');
+    },
+  };
+}
+
 function createTableOAuthStore(
   connectionString: string,
   oauthStateTtlMs: number,
   stateTableName: string,
   sessionTableName: string,
+  tokenCipher: TokenCipher,
 ): OAuthStore {
   const stateTable = TableClient.fromConnectionString(connectionString, stateTableName);
   const sessionTable = TableClient.fromConnectionString(connectionString, sessionTableName);
@@ -123,8 +155,8 @@ function createTableOAuthStore(
   function mapSessionEntity(entity: OAuthSessionEntity): AfasOAuthSession {
     return {
       appSessionId: entity.rowKey,
-      accessToken: entity.accessToken,
-      refreshToken: entity.refreshToken,
+      accessToken: tokenCipher.decrypt(entity.accessToken),
+      refreshToken: entity.refreshToken ? tokenCipher.decrypt(entity.refreshToken) : undefined,
       accessTokenExpiresAt: entity.accessTokenExpiresAt,
       tokenType: entity.tokenType,
       scope: entity.scope,
@@ -192,8 +224,8 @@ function createTableOAuthStore(
       await sessionTable.upsertEntity<OAuthSessionEntity>({
         partitionKey: 'app',
         rowKey: session.appSessionId,
-        accessToken: session.accessToken,
-        refreshToken: session.refreshToken,
+        accessToken: tokenCipher.encrypt(session.accessToken),
+        refreshToken: session.refreshToken ? tokenCipher.encrypt(session.refreshToken) : undefined,
         accessTokenExpiresAt: session.accessTokenExpiresAt,
         tokenType: session.tokenType,
         scope: session.scope,
@@ -216,5 +248,15 @@ export function createOAuthStore(oauthStateTtlMs: number): OAuthStore {
   const stateTableName = process.env.AZURE_TABLE_STORAGE_OAUTH_STATE_TABLE?.trim() || 'AfasOAuthState';
   const sessionTableName = process.env.AZURE_TABLE_STORAGE_OAUTH_SESSION_TABLE?.trim() || 'AfasOAuthSession';
   if (!connectionString) return createMemoryOAuthStore(oauthStateTtlMs);
-  return createTableOAuthStore(connectionString, oauthStateTtlMs, stateTableName, sessionTableName);
+  const encryptionKey = process.env.AFAS_ENCRYPTION_KEY?.trim() || '';
+  if (!encryptionKey) {
+    throw new Error('AFAS_ENCRYPTION_KEY ontbreekt. Deze is verplicht zodra Azure Table Storage voor AFAS OAuth wordt gebruikt.');
+  }
+  return createTableOAuthStore(
+    connectionString,
+    oauthStateTtlMs,
+    stateTableName,
+    sessionTableName,
+    createTokenCipher(encryptionKey),
+  );
 }
