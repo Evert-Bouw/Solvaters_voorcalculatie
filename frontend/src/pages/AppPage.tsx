@@ -1063,6 +1063,38 @@ export default function AppPage() {
     [quotations, selectedQuotationIds],
   );
 
+  function getLockedQuotationInfo(quotationId: string) {
+    if (iframeContextMode !== 'method1' || !iframeSession?.sessionId) return null;
+    const lockState = quotationLocks[quotationId];
+    if (!lockState?.lock || lockState.mine) return null;
+    return lockState.lock;
+  }
+
+  function renderLockedQuotationBadge(quotationId: string) {
+    const lock = getLockedQuotationInfo(quotationId);
+    if (!lock) return null;
+    return (
+      <span className="rounded bg-rose-100 px-2 py-1 text-[10px] font-semibold text-rose-700">
+        Bezet door {lock.ownerDisplayName}
+      </span>
+    );
+  }
+
+  function renderLockedQuotationOverlay(quotationId: string) {
+    const lock = getLockedQuotationInfo(quotationId);
+    if (!lock) return null;
+    return (
+      <div className="absolute inset-0 z-20 flex items-center justify-center rounded border border-rose-200 bg-white/75 p-4 backdrop-blur-[1px]">
+        <div className="max-w-md rounded-lg border border-rose-200 bg-white px-4 py-3 text-center shadow-sm">
+          <p className="text-sm font-semibold text-rose-700">Deze voorcalculatie is tijdelijk vergrendeld.</p>
+          <p className="mt-1 text-xs leading-5 text-slate-600">
+            {lock.ownerDisplayName} is hier nu in aan het werken. Je kunt de inhoud bekijken, maar niet aanpassen totdat de lock vrijkomt.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
   const hasVisibleNoPhaseLines = useMemo(
     () =>
       draftLines.some(
@@ -3863,8 +3895,9 @@ export default function AppPage() {
       </section>
     );
   }
-    function renderQuotationGroup(quotation: Quotation) {
+  function renderQuotationGroup(quotation: Quotation) {
     const isOpen = expandedQuotationIds.includes(quotation.id);
+    const lockedQuotation = getLockedQuotationInfo(quotation.id);
     const lines = activeLines
       .filter((line) => line.quotationId === quotation.id)
       .sort((a, b) => (a.order !== b.order ? a.order - b.order : a.id.localeCompare(b.id, 'nl')));
@@ -3883,16 +3916,18 @@ export default function AppPage() {
             <span className={`ml-auto text-[11px] ${isOpen ? 'font-medium text-slate-600' : 'font-bold text-slate-900'}`}>KOSTEN {formatAmount(quotationTotals.cost)} | BEDRAG {formatAmount(quotationTotals.amount)} | MARGE {formatMarginPct(quotationTotals.cost, quotationTotals.amount)}</span>
             <span>{isOpen ? '▾' : '▸'}</span>
           </button>
+          {renderLockedQuotationBadge(quotation.id)}
           <div className="relative">
             <button
               type="button"
-              className="inline-flex h-7 w-7 items-center justify-center rounded text-slate-500 hover:bg-slate-200 hover:text-slate-700"
+              className="inline-flex h-7 w-7 items-center justify-center rounded text-slate-500 hover:bg-slate-200 hover:text-slate-700 disabled:cursor-not-allowed disabled:opacity-40"
               onClick={(event) => {
                 event.stopPropagation();
                 openQuotationMenu(quotation.id);
               }}
               aria-label="Voorcalculatie acties"
               title="Voorcalculatie acties"
+              disabled={Boolean(lockedQuotation)}
             >
               ⋯
             </button>
@@ -3926,9 +3961,9 @@ export default function AppPage() {
           </div>
         </div>
         {isOpen ? (
-          <div className="p-3">
+          <div className="relative p-3">
             <div
-              className="group relative z-0 w-full max-w-full overflow-x-hidden overflow-y-visible rounded border border-slate-200"
+              className={`group relative z-0 w-full max-w-full overflow-x-hidden overflow-y-visible rounded border border-slate-200 ${lockedQuotation ? 'pointer-events-none opacity-45 select-none' : ''}`}
               onMouseEnter={() => {
                 addLineHotkeyRef.current = () => addLineToGroup(quotation.id, 'NO_STAGE');
               }}
@@ -3988,6 +4023,7 @@ export default function AppPage() {
                 </table>
               </div>
             </div>
+            {renderLockedQuotationOverlay(quotation.id)}
           </div>
         ) : null}
       </section>
@@ -4013,6 +4049,17 @@ export default function AppPage() {
 
   return (
     <div className="flex h-screen flex-col overflow-hidden bg-slate-100 p-3">
+      {saving ? (
+        <div className="absolute inset-0 z-50 flex items-center justify-center bg-slate-900/20 backdrop-blur-[1px]">
+          <div className="flex min-w-[240px] items-center gap-3 rounded-lg border border-slate-200 bg-white px-5 py-4 shadow-lg">
+            <span className="inline-block h-5 w-5 animate-spin rounded-full border-2 border-brand-600 border-t-transparent" aria-hidden="true" />
+            <div>
+              <p className="text-sm font-semibold text-slate-800">Opslaan in uitvoering</p>
+              <p className="text-xs text-slate-600">De wijzigingen worden nu verwerkt.</p>
+            </div>
+          </div>
+        </div>
+      ) : null}
       <header className="mb-3 flex flex-none flex-wrap items-center justify-between gap-3 rounded-lg bg-white p-4 shadow-sm">
         <div className="text-sm">
           {!isProjectLockedFromUrl ? <label className="mb-1 block text-slate-500" htmlFor="project-select">Project</label> : null}
@@ -4240,16 +4287,18 @@ export default function AppPage() {
                         </span>
                         <span>{expandedQuotationIds.includes(quotation.id) ? '▾' : '▸'}</span>
                       </button>
+                      {renderLockedQuotationBadge(quotation.id)}
                       <div className="relative">
                         <button
                           type="button"
-                          className="inline-flex h-7 w-7 items-center justify-center rounded text-slate-500 hover:bg-slate-200 hover:text-slate-700"
+                          className="inline-flex h-7 w-7 items-center justify-center rounded text-slate-500 hover:bg-slate-200 hover:text-slate-700 disabled:cursor-not-allowed disabled:opacity-40"
                           onClick={(event) => {
                             event.stopPropagation();
                             openQuotationMenu(quotation.id);
                           }}
                           aria-label="Voorcalculatie acties"
                           title="Voorcalculatie acties"
+                          disabled={Boolean(getLockedQuotationInfo(quotation.id))}
                         >
                           ⋯
                         </button>
@@ -4283,9 +4332,12 @@ export default function AppPage() {
                       </div>
                     </div>
                     {expandedQuotationIds.includes(quotation.id) ? (
-                      <div className="space-y-3 p-3">
-                        {[...stages.filter((stage) => activeStageIds.includes(stage.id)), ...(activeLines.some((line) => line.quotationId === quotation.id && line.stageId === NO_STAGE_ID) ? [noPhaseStage] : [])]
-                          .map((stage) => renderStageGroup(quotation.id, quotation.id, stage))}
+                      <div className="relative space-y-3 p-3">
+                        <div className={getLockedQuotationInfo(quotation.id) ? 'pointer-events-none opacity-45 select-none' : ''}>
+                          {[...stages.filter((stage) => activeStageIds.includes(stage.id)), ...(activeLines.some((line) => line.quotationId === quotation.id && line.stageId === NO_STAGE_ID) ? [noPhaseStage] : [])]
+                            .map((stage) => renderStageGroup(quotation.id, quotation.id, stage))}
+                        </div>
+                        {renderLockedQuotationOverlay(quotation.id)}
                       </div>
                     ) : null}
                   </section>
