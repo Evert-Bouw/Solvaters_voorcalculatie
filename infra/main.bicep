@@ -32,33 +32,6 @@ param frontendAppUrl string = ''
 @description('Application name used in AFAS Key Vault secret naming.')
 param afasSecretAppName string = 'solvaters-voorcalculatie'
 
-@description('AFAS environment number used in Key Vault secret naming, for example 93567.')
-param afasSecretEnvironmentNumber string
-
-@description('Optional override for the AFAS environment id secret name.')
-param afasEnvironmentIdSecretName string = ''
-
-@description('Optional override for the AFAS environment type secret name.')
-param afasEnvironmentTypeSecretName string = ''
-
-@description('Optional override for the AFAS classic token secret name.')
-param afasTokenSecretName string = ''
-
-@description('Optional override for the AFAS public key secrets secret name.')
-param afasPublicKeySecretsSecretName string = ''
-
-@description('Optional override for the AFAS OAuth client id secret name.')
-param afasOauthClientIdSecretName string = ''
-
-@description('Optional override for the AFAS OAuth client secret secret name.')
-param afasOauthClientSecretSecretName string = ''
-
-@description('Optional override for the AFAS encryption key secret name.')
-param afasEncryptionKeySecretName string = ''
-
-@description('Optional override for the Azure Table Storage connection string secret name.')
-param azureTableStorageConnectionStringSecretName string = ''
-
 @description('Optional override for the OAuth redirect URI. Leave empty to use https://<webapp>/api/afas/oauth/callback.')
 param afasOauthRedirectUri string = ''
 
@@ -71,18 +44,8 @@ param azureTableStorageOAuthStateTable string = 'AfasOAuthState'
 @description('Table name for persisted OAuth sessions.')
 param azureTableStorageOAuthSessionTable string = 'AfasOAuthSession'
 
-var keyVaultSecretUriBase = 'https://${keyVaultName}.vault.azure.net/secrets'
 var resolvedFrontendUrl = empty(frontendAppUrl) ? 'https://${staticWebAppName}.azurestaticapps.net' : frontendAppUrl
 var resolvedOauthRedirectUri = empty(afasOauthRedirectUri) ? 'https://${webAppName}.azurewebsites.net/api/afas/oauth/callback' : afasOauthRedirectUri
-var afasSecretPrefix = 'afas-${afasSecretAppName}-${afasSecretEnvironmentNumber}'
-var resolvedAfasEnvironmentIdSecretName = empty(afasEnvironmentIdSecretName) ? '${afasSecretPrefix}-environment-id' : afasEnvironmentIdSecretName
-var resolvedAfasEnvironmentTypeSecretName = empty(afasEnvironmentTypeSecretName) ? '${afasSecretPrefix}-environment-type' : afasEnvironmentTypeSecretName
-var resolvedAfasTokenSecretName = empty(afasTokenSecretName) ? '${afasSecretPrefix}-token' : afasTokenSecretName
-var resolvedAfasPublicKeySecretsSecretName = empty(afasPublicKeySecretsSecretName) ? '${afasSecretPrefix}-publickey-secrets' : afasPublicKeySecretsSecretName
-var resolvedAfasOauthClientIdSecretName = empty(afasOauthClientIdSecretName) ? '${afasSecretPrefix}-oauth-client-id' : afasOauthClientIdSecretName
-var resolvedAfasOauthClientSecretSecretName = empty(afasOauthClientSecretSecretName) ? '${afasSecretPrefix}-oauth-client-secret' : afasOauthClientSecretSecretName
-var resolvedAfasEncryptionKeySecretName = empty(afasEncryptionKeySecretName) ? '${afasSecretPrefix}-encryption-key' : afasEncryptionKeySecretName
-var resolvedAzureTableStorageConnectionStringSecretName = empty(azureTableStorageConnectionStringSecretName) ? '${afasSecretPrefix}-azure-table-storage-connection-string' : azureTableStorageConnectionStringSecretName
 
 resource keyVault 'Microsoft.KeyVault/vaults@2023-07-01' existing = {
   name: keyVaultName
@@ -125,32 +88,12 @@ resource webApp 'Microsoft.Web/sites@2023-12-01' = {
           value: '1'
         }
         {
-          name: 'AFAS_ENVIRONMENT_ID'
-          value: '@Microsoft.KeyVault(SecretUri=${keyVaultSecretUriBase}/${resolvedAfasEnvironmentIdSecretName})'
+          name: 'AZURE_KEY_VAULT_NAME'
+          value: keyVaultName
         }
         {
-          name: 'AFAS_ENVIRONMENT_TYPE'
-          value: '@Microsoft.KeyVault(SecretUri=${keyVaultSecretUriBase}/${resolvedAfasEnvironmentTypeSecretName})'
-        }
-        {
-          name: 'AFAS_TOKEN'
-          value: '@Microsoft.KeyVault(SecretUri=${keyVaultSecretUriBase}/${resolvedAfasTokenSecretName})'
-        }
-        {
-          name: 'AFAS_PUBLICKEY_SECRETS'
-          value: '@Microsoft.KeyVault(SecretUri=${keyVaultSecretUriBase}/${resolvedAfasPublicKeySecretsSecretName})'
-        }
-        {
-          name: 'AFAS_OAUTH_CLIENT_ID'
-          value: '@Microsoft.KeyVault(SecretUri=${keyVaultSecretUriBase}/${resolvedAfasOauthClientIdSecretName})'
-        }
-        {
-          name: 'AFAS_OAUTH_CLIENT_SECRET'
-          value: '@Microsoft.KeyVault(SecretUri=${keyVaultSecretUriBase}/${resolvedAfasOauthClientSecretSecretName})'
-        }
-        {
-          name: 'AFAS_ENCRYPTION_KEY'
-          value: '@Microsoft.KeyVault(SecretUri=${keyVaultSecretUriBase}/${resolvedAfasEncryptionKeySecretName})'
+          name: 'AFAS_SECRET_APP_NAME'
+          value: afasSecretAppName
         }
         {
           name: 'AFAS_OAUTH_REDIRECT_URI'
@@ -159,10 +102,6 @@ resource webApp 'Microsoft.Web/sites@2023-12-01' = {
         {
           name: 'AFAS_OAUTH_SCOPE'
           value: afasOauthScope
-        }
-        {
-          name: 'AZURE_TABLE_STORAGE_CONNECTION_STRING'
-          value: '@Microsoft.KeyVault(SecretUri=${keyVaultSecretUriBase}/${resolvedAzureTableStorageConnectionStringSecretName})'
         }
         {
           name: 'AZURE_TABLE_STORAGE_OAUTH_STATE_TABLE'
@@ -195,12 +134,12 @@ resource staticWebApp 'Microsoft.Web/staticSites@2023-12-01' = {
 }
 
 resource keyVaultSecretsUserRoleAssignment 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
-  name: guid(keyVault.id, webApp.id, 'KeyVaultSecretsUser')
+  name: guid(keyVault.id, webApp.id, 'KeyVaultSecretsOfficer')
   scope: keyVault
   properties: {
     principalId: webApp.identity.principalId
     principalType: 'ServicePrincipal'
-    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '4633458b-17de-408a-b874-0445c86b69e6')
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', 'b86a8fe4-44ce-4948-aee5-eccb2c155cd7')
   }
 }
 

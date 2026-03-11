@@ -21,7 +21,17 @@ import {
   updateAfasQuotation,
 } from './afas.js';
 import { buildQuotationLineFieldMappings } from './quotationLineFieldMappings.js';
-import { AfasOAuthSession, createOAuthStore, PendingAfasOAuthState } from './oauthStore.js';
+import {
+  buildAfasScopedSecretName,
+  ensurePlaceholderSecret,
+  getActiveEnvironmentNumberSecretName,
+  getSecretValue,
+  isKeyVaultConfigured,
+  isPlaceholderSecretValue,
+  listBootstrapSecretValues,
+  setSecretValue,
+} from './keyVault.js';
+import { AfasOAuthSession, createOAuthStore, OAuthStore, PendingAfasOAuthState } from './oauthStore.js';
 import {
   AfasWriteAuthMode,
   Creditor,
@@ -150,7 +160,6 @@ const quotationLocks = new Map<string, QuotationLock>();
 const defaultLockTtlSeconds = 180;
 const maxLockTtlSeconds = 600;
 const iframeTokenAllowedHostSuffixes = ['.afasinsite.nl', '.afas.online'];
-const iframePublicKeySecrets = parsePublicKeySecrets(process.env.AFAS_PUBLICKEY_SECRETS);
 const oauthStateTtlMs = 10 * 60 * 1000;
 
 type AfasOAuthConfig = {
@@ -159,7 +168,20 @@ type AfasOAuthConfig = {
   redirectUri: string;
   scope?: string;
 };
-const oauthStore = createOAuthStore(oauthStateTtlMs);
+type AfasRuntimeSecrets = {
+  activeEnvironmentNumber?: string;
+  publicKeySecrets: Record<string, string>;
+  oauthClientId?: string;
+  oauthClientSecret?: string;
+  encryptionKey?: string;
+  tableStorageConnectionString?: string;
+};
+
+let iframePublicKeySecrets = parsePublicKeySecrets(process.env.AFAS_PUBLICKEY_SECRETS);
+let oauthStore: OAuthStore = createOAuthStore(oauthStateTtlMs);
+let afasRuntimeSecrets: AfasRuntimeSecrets = {
+  publicKeySecrets: iframePublicKeySecrets,
+};
 
 type AfasConnectionConfigResponse = {
   mode: 'afas';
@@ -185,12 +207,20 @@ function buildAfasConnectionConfigResponse(config: AfasConfig): AfasConnectionCo
   };
 }
 
-function applyAfasConnectionInput(input: AfasConnectionInput) {
+async function applyAfasConnectionInput(input: AfasConnectionInput) {
   const nextEnvironmentId = typeof input.environmentId === 'string' ? input.environmentId.trim() : afasConfig.environmentId;
   const nextEnvironmentType = sanitizeAfasEnvironmentType(typeof input.environmentType === 'string' ? input.environmentType : undefined);
   const incomingToken = typeof input.token === 'string' ? input.token.trim() : undefined;
   const nextToken = incomingToken ? normalizeTokenValue(incomingToken) : afasConfig.token;
   if (incomingToken && !nextToken) throw new Error('Classic token kon niet genormaliseerd worden.');
+  if (!nextEnvironmentId) throw new Error('AFAS omgevings-ID ontbreekt.');
+  if (!nextToken) throw new Error('Classic token ontbreekt.');
+
+  await writeAfasBootstrapSecrets({
+    environmentId: nextEnvironmentId,
+    environmentType: nextEnvironmentType,
+    token: nextToken,
+  });
 
   afasConfig = {
     ...afasConfig,
@@ -199,6 +229,7 @@ function applyAfasConnectionInput(input: AfasConnectionInput) {
     environmentType: nextEnvironmentType,
     token: nextToken,
   };
+  await refreshRuntimeSecretsFromKeyVault(nextEnvironmentId);
   appSettings = normalizeSettings({ ...appSettings, dataMode: 'afas' });
   return buildAfasConnectionConfigResponse(afasConfig);
 }
@@ -324,9 +355,94 @@ function parsePublicKeySecrets(raw?: string): Record<string, string> {
   }
 }
 
+function resetRuntimeSecretsFromEnvironment() {
+  iframePublicKeySecrets = parsePublicKeySecrets(process.env.AFAS_PUBLICKEY_SECRETS);
+  afasRuntimeSecrets = {
+    activeEnvironmentNumber: afasConfig.environmentId,
+    publicKeySecrets: iframePublicKeySecrets,
+    oauthClientId: process.env.AFAS_OAUTH_CLIENT_ID?.trim() || undefined,
+    oauthClientSecret: process.env.AFAS_OAUTH_CLIENT_SECRET?.trim() || undefined,
+    encryptionKey: process.env.AFAS_ENCRYPTION_KEY?.trim() || undefined,
+    tableStorageConnectionString: process.env.AZURE_TABLE_STORAGE_CONNECTION_STRING?.trim() || undefined,
+  };
+  oauthStore = createOAuthStore(oauthStateTtlMs, {
+    connectionString: afasRuntimeSecrets.tableStorageConnectionString,
+    encryptionKey: afasRuntimeSecrets.encryptionKey,
+  });
+}
+
+async function refreshRuntimeSecretsFromKeyVault(environmentNumber?: string) {
+  if (!isKeyVaultConfigured()) {
+    resetRuntimeSecretsFromEnvironment();
+    return;
+  }
+  const envNumber = environmentNumber?.trim() || afasConfig.environmentId?.trim() || '';
+  if (!envNumber) {
+    resetRuntimeSecretsFromEnvironment();
+    return;
+  }
+  const values = await listBootstrapSecretValues(envNumber);
+  iframePublicKeySecrets = parsePublicKeySecrets(values['publickey-secrets']);
+  afasRuntimeSecrets = {
+    activeEnvironmentNumber: envNumber,
+    publicKeySecrets: iframePublicKeySecrets,
+    oauthClientId: values['oauth-client-id'],
+    oauthClientSecret: values['oauth-client-secret'],
+    encryptionKey: values['encryption-key'],
+    tableStorageConnectionString: values['azure-table-storage-connection-string'],
+  };
+  oauthStore = createOAuthStore(oauthStateTtlMs, {
+    connectionString: afasRuntimeSecrets.tableStorageConnectionString,
+    encryptionKey: afasRuntimeSecrets.encryptionKey,
+  });
+}
+
+async function loadAfasConfigFromKeyVault() {
+  if (!isKeyVaultConfigured()) return;
+  const activeEnvironmentNumber = await getSecretValue(getActiveEnvironmentNumberSecretName());
+  if (!activeEnvironmentNumber || isPlaceholderSecretValue(activeEnvironmentNumber)) return;
+  const values = await listBootstrapSecretValues(activeEnvironmentNumber);
+  const environmentId = values['environment-id']?.trim();
+  const environmentType = sanitizeAfasEnvironmentType(values['environment-type']);
+  const token = values.token?.trim();
+  if (!environmentId || !token) return;
+  afasConfig = {
+    ...afasConfig,
+    environmentId,
+    environmentType,
+    token,
+  };
+  await refreshRuntimeSecretsFromKeyVault(activeEnvironmentNumber);
+}
+
+async function writeAfasBootstrapSecrets(input: { environmentId: string; environmentType: AfasEnvironmentType; token: string }) {
+  if (!isKeyVaultConfigured()) return;
+  const environmentNumber = input.environmentId.trim();
+  const tags = {
+    app: process.env.AFAS_SECRET_APP_NAME?.trim() || 'afas-app',
+    environmentNumber,
+    source: 'settings-bootstrap',
+  };
+  await setSecretValue(getActiveEnvironmentNumberSecretName(), environmentNumber, tags);
+  await setSecretValue(buildAfasScopedSecretName(environmentNumber, 'environment-id'), environmentNumber, tags);
+  await setSecretValue(buildAfasScopedSecretName(environmentNumber, 'environment-type'), input.environmentType, tags);
+  await setSecretValue(buildAfasScopedSecretName(environmentNumber, 'token'), input.token, tags);
+
+  const placeholderSuffixes = [
+    'publickey-secrets',
+    'oauth-client-id',
+    'oauth-client-secret',
+    'encryption-key',
+    'azure-table-storage-connection-string',
+  ];
+  for (const suffix of placeholderSuffixes) {
+    await ensurePlaceholderSecret(buildAfasScopedSecretName(environmentNumber, suffix), tags);
+  }
+}
+
 function getAfasOAuthConfig(): AfasOAuthConfig | null {
-  const clientId = process.env.AFAS_OAUTH_CLIENT_ID?.trim() || '';
-  const clientSecret = process.env.AFAS_OAUTH_CLIENT_SECRET?.trim() || '';
+  const clientId = afasRuntimeSecrets.oauthClientId?.trim() || process.env.AFAS_OAUTH_CLIENT_ID?.trim() || '';
+  const clientSecret = afasRuntimeSecrets.oauthClientSecret?.trim() || process.env.AFAS_OAUTH_CLIENT_SECRET?.trim() || '';
   const redirectUri = process.env.AFAS_OAUTH_REDIRECT_URI?.trim() || '';
   const scope = process.env.AFAS_OAUTH_SCOPE?.trim() || undefined;
   if (!clientId || !clientSecret || !redirectUri) return null;
@@ -1475,10 +1591,10 @@ app.get('/api/afas/config', (_req, res) => {
   res.json(buildAfasConnectionConfigResponse(afasConfig));
 });
 
-app.post('/api/afas/config', (req, res) => {
+app.post('/api/afas/config', async (req, res) => {
   try {
     const payload = (req.body ?? {}) as AfasConnectionInput;
-    return res.json(applyAfasConnectionInput(payload));
+    return res.json(await applyAfasConnectionInput(payload));
   } catch (error) {
     return res.status(400).send((error as Error).message);
   }
@@ -1977,6 +2093,15 @@ app.get('/api/creditors', async (req, res) => {
   }
 });
 
-app.listen(port, () => {
-  console.log(`API draait op http://localhost:${port} (afas, oauth-store=${oauthStore.getMode()})`);
+async function startServer() {
+  resetRuntimeSecretsFromEnvironment();
+  await loadAfasConfigFromKeyVault();
+  app.listen(port, () => {
+    console.log(`API draait op http://localhost:${port} (afas, oauth-store=${oauthStore.getMode()})`);
+  });
+}
+
+void startServer().catch((error) => {
+  console.error('Backend startup failed:', (error as Error).message);
+  process.exit(1);
 });

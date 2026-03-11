@@ -45,7 +45,7 @@ type OAuthSessionEntity = {
   updatedAt: string;
 };
 
-type OAuthStore = {
+export type OAuthStore = {
   getMode(): 'memory' | 'table';
   savePendingState(state: string, pending: PendingAfasOAuthState): Promise<void>;
   getPendingState(state: string): Promise<PendingAfasOAuthState | undefined>;
@@ -243,12 +243,20 @@ function createTableOAuthStore(
   };
 }
 
-export function createOAuthStore(oauthStateTtlMs: number): OAuthStore {
-  const connectionString = process.env.AZURE_TABLE_STORAGE_CONNECTION_STRING?.trim() || '';
-  const stateTableName = process.env.AZURE_TABLE_STORAGE_OAUTH_STATE_TABLE?.trim() || 'AfasOAuthState';
-  const sessionTableName = process.env.AZURE_TABLE_STORAGE_OAUTH_SESSION_TABLE?.trim() || 'AfasOAuthSession';
+export function createOAuthStore(
+  oauthStateTtlMs: number,
+  options?: {
+    connectionString?: string;
+    encryptionKey?: string;
+    stateTableName?: string;
+    sessionTableName?: string;
+  },
+): OAuthStore {
+  const connectionString = options?.connectionString?.trim() || process.env.AZURE_TABLE_STORAGE_CONNECTION_STRING?.trim() || '';
+  const stateTableName = options?.stateTableName?.trim() || process.env.AZURE_TABLE_STORAGE_OAUTH_STATE_TABLE?.trim() || 'AfasOAuthState';
+  const sessionTableName = options?.sessionTableName?.trim() || process.env.AZURE_TABLE_STORAGE_OAUTH_SESSION_TABLE?.trim() || 'AfasOAuthSession';
   if (!connectionString) return createMemoryOAuthStore(oauthStateTtlMs);
-  const encryptionKey = process.env.AFAS_ENCRYPTION_KEY?.trim() || '';
+  const encryptionKey = options?.encryptionKey?.trim() || process.env.AFAS_ENCRYPTION_KEY?.trim() || '';
   if (!encryptionKey) {
     throw new Error('AFAS_ENCRYPTION_KEY ontbreekt. Deze is verplicht zodra Azure Table Storage voor AFAS OAuth wordt gebruikt.');
   }

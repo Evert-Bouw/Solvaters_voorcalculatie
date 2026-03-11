@@ -20,9 +20,6 @@
     "afasSecretAppName": {
       "value": "solvaters-voorcalculatie"
     },
-    "afasSecretEnvironmentNumber": {
-      "value": "93567"
-    },
     "frontendAppUrl": {
       "value": ""
     },

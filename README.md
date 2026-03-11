@@ -132,70 +132,26 @@ Belangrijke backend-variabelen:
 
 ## GitHub Deploy
 
-De repo is ingericht voor deployment via GitHub Actions met Azure OIDC, Bicep en een bestaande:
+De repo is ingericht voor deployment via GitHub Actions met Azure OIDC, Bicep en een bestaande `Resource Group`, `Storage Account` en `Key Vault`.
 
-- Resource Group
-- Storage Account
-- Key Vault
+Gebruik voor de volledige setup en de exacte Solvaters-waarden:
 
-Bestanden:
+- [GITHUB_SETUP_SOLVATERS.md](/c:/Users/EvertBouwSolvatersBV/Downloads/Solvaters_voorcalculatie/GITHUB_SETUP_SOLVATERS.md)
 
-- workflow: `.github/workflows/deploy.yml`
-- infra: `infra/main.bicep`
-- bootstrapnotities: `.github/README.md`
-- concreet invulblad voor jullie omgeving: `GITHUB_SETUP_SOLVATERS.md`
+Technische bronnen:
 
-GitHub secrets:
+- workflow: [.github/workflows/deploy.yml](/c:/Users/EvertBouwSolvatersBV/Downloads/Solvaters_voorcalculatie/.github/workflows/deploy.yml)
+- infra: [infra/main.bicep](/c:/Users/EvertBouwSolvatersBV/Downloads/Solvaters_voorcalculatie/infra/main.bicep)
+- GitHub bootstrapnotities: [.github/README.md](/c:/Users/EvertBouwSolvatersBV/Downloads/Solvaters_voorcalculatie/.github/README.md)
+- infra-notities: [infra/README.md](/c:/Users/EvertBouwSolvatersBV/Downloads/Solvaters_voorcalculatie/infra/README.md)
 
-- `AZURE_CLIENT_ID`
-- `AZURE_TENANT_ID`
-- `AZURE_SUBSCRIPTION_ID`
+Samenvatting:
 
-GitHub variables:
-
-- `AZURE_RESOURCE_GROUP`
-- `AZURE_LOCATION`
-- `AZURE_APP_SERVICE_PLAN_NAME`
-- `AZURE_WEBAPP_NAME`
-- `AZURE_STATIC_WEB_APP_NAME`
-- `AZURE_KEY_VAULT_NAME`
-- `AFAS_SECRET_APP_NAME`
-- `AFAS_SECRET_ENVIRONMENT_NUMBER`
-- `AZURE_FRONTEND_APP_URL`
-- `AFAS_OAUTH_REDIRECT_URI`
-- `AFAS_OAUTH_SCOPE`
-- `VITE_API_BASE_URL`
-
-Verwachte Key Vault secrets:
-
-- `afas-<appnaam>-<omgevingsnummer>-environment-id`
-- `afas-<appnaam>-<omgevingsnummer>-environment-type`
-- `afas-<appnaam>-<omgevingsnummer>-token`
-- `afas-<appnaam>-<omgevingsnummer>-publickey-secrets`
-- `afas-<appnaam>-<omgevingsnummer>-oauth-client-id`
-- `afas-<appnaam>-<omgevingsnummer>-oauth-client-secret`
-- `afas-<appnaam>-<omgevingsnummer>-encryption-key`
-- `afas-<appnaam>-<omgevingsnummer>-azure-table-storage-connection-string`
-
-Voorbeeld voor app `solvaters-voorcalculatie`, omgeving `93567`:
-
-- `afas-solvaters-voorcalculatie-93567-environment-id`
-- `afas-solvaters-voorcalculatie-93567-environment-type`
-- `afas-solvaters-voorcalculatie-93567-token`
-- `afas-solvaters-voorcalculatie-93567-publickey-secrets`
-- `afas-solvaters-voorcalculatie-93567-oauth-client-id`
-- `afas-solvaters-voorcalculatie-93567-oauth-client-secret`
-- `afas-solvaters-voorcalculatie-93567-encryption-key`
-- `afas-solvaters-voorcalculatie-93567-azure-table-storage-connection-string`
-
-De deploymentworkflow maakt ontbrekende secret-namen automatisch aan met placeholderwaarde `__SET_REAL_VALUE__`. Daarna hoeven alleen de echte waarden nog in Key Vault ingevuld te worden.
-
-De workflow:
-
-- rolt App Service Plan, Web App en Static Web App uit of werkt ze bij
-- zet Web App app settings via Key Vault references
-- build en deployt backend en frontend
-- haalt zelf het Static Web App deployment token op via Azure CLI
+- de workflow rolt `App Service Plan`, `Web App` en `Static Web App` uit of werkt ze bij
+- de Web App krijgt `AZURE_KEY_VAULT_NAME` en `AFAS_SECRET_APP_NAME` als app settings en leest/schrijft daarna zelf Key Vault secrets via managed identity
+- in de instellingenpagina vul je `omgevingsnummer`, `omgevingstype` en `classic token` in; de backend schrijft die naar Key Vault, zet `afas-<appnaam>-active-environment-number` en maakt de overige app-specifieke secret-namen als placeholder `__SET_REAL_VALUE__` aan
+- daarna hoeven alleen de resterende echte secretwaarden nog in `Key Vault` ingevuld te worden
+- de GitHub deployment identity heeft minimaal `Contributor` op resource group `Solvaters` en `Administrator voor gebruikerstoegang` of gelijkwaardig voor de Key Vault role assignment nodig
 
 ## Starten
 

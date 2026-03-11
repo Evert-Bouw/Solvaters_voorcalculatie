@@ -1,42 +1,18 @@
-## GitHub Actions bootstrap
+## GitHub Actions
 
-### GitHub Secrets
+De primaire setuphandleiding staat in [GITHUB_SETUP_SOLVATERS.md](/c:/Users/EvertBouwSolvatersBV/Downloads/Solvaters_voorcalculatie/GITHUB_SETUP_SOLVATERS.md).
 
-- `AZURE_CLIENT_ID`
-- `AZURE_TENANT_ID`
-- `AZURE_SUBSCRIPTION_ID`
+Deze map bevat alleen de technische workflow:
 
-### GitHub Variables
+- [.github/workflows/deploy.yml](/c:/Users/EvertBouwSolvatersBV/Downloads/Solvaters_voorcalculatie/.github/workflows/deploy.yml)
 
-- `AZURE_RESOURCE_GROUP`
-- `AZURE_LOCATION`
-- `AZURE_APP_SERVICE_PLAN_NAME`
-- `AZURE_WEBAPP_NAME`
-- `AZURE_STATIC_WEB_APP_NAME`
-- `AZURE_KEY_VAULT_NAME`
-- `AFAS_SECRET_APP_NAME`
-- `AFAS_SECRET_ENVIRONMENT_NUMBER`
-- `AZURE_FRONTEND_APP_URL`
-- `AFAS_OAUTH_REDIRECT_URI`
-- `AFAS_OAUTH_SCOPE`
-- `VITE_API_BASE_URL`
+De workflow:
 
-### Required Azure setup
+- logt in op Azure via OIDC
+- rolt infra uit via Bicep
+- deployt backend en frontend
 
-- An Entra ID app or federated identity credential for GitHub OIDC
-- Contributor rights on the target resource group
-- Rights to read Key Vault secrets and manage deployments in the resource group
+Minimale rechten voor de GitHub deployment identity:
 
-The workflow creates or updates the Web App, App Service plan and Static Web App, then deploys backend and frontend.
-It also creates missing Key Vault secret names with placeholder value `__SET_REAL_VALUE__`, so you only need to replace the values afterward.
-
-Required Key Vault secrets for the backend include at least:
-
-- `afas-<appnaam>-<omgevingsnummer>-environment-id`
-- `afas-<appnaam>-<omgevingsnummer>-environment-type`
-- `afas-<appnaam>-<omgevingsnummer>-token`
-- `afas-<appnaam>-<omgevingsnummer>-publickey-secrets`
-- `afas-<appnaam>-<omgevingsnummer>-oauth-client-id`
-- `afas-<appnaam>-<omgevingsnummer>-oauth-client-secret`
-- `afas-<appnaam>-<omgevingsnummer>-encryption-key`
-- `afas-<appnaam>-<omgevingsnummer>-azure-table-storage-connection-string`
+- `Contributor` op de doel-resourcegroep
+- `Administrator voor gebruikerstoegang` of gelijkwaardig op de gebruikte Key Vault of bovenliggende scope, zodat Bicep de Web App identity rollen kan geven

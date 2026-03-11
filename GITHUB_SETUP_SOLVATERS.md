@@ -2,29 +2,23 @@
 
 Dit project is voorbereid voor deployment via GitHub Actions naar Azure.
 
-Huidige bestaande Azure-resources:
+Bestaande Azure-resources:
 
 - Abonnement: `Azure-abonnement-Solvaters`
 - Resource Group: `Solvaters`
 - Storage Account: `solvatersopslag`
 - Key Vault: `solvaters-kluis`
 
-## Stap 1: repo naar GitHub zetten
+## Volgorde
 
-Gebruik deze repo als eerste uploadbasis. Voor de eerste push heb je alleen nodig:
-
-1. Maak een lege GitHub-repository aan, bijvoorbeeld `solvaters-voorcalculatie`.
-2. Zorg dat je geen lokale `.env` bestanden mee commit.
-3. Push deze projectmap naar GitHub.
-
-Belangrijke bestanden voor de eerste push:
-
-- `.github/workflows/deploy.yml`
-- `.github/README.md`
-- `infra/main.bicep`
-- `infra/README.md`
-- `backend/.env.example`
-- `frontend/.env.example`
+1. Push de repo naar GitHub.
+2. Zet de GitHub secrets.
+3. Zet de GitHub variables.
+4. Controleer de Entra OIDC koppeling en rechten.
+5. Start de workflow.
+6. Open daarna de app-instellingen en vul `omgevingsnummer`, `omgevingstype` en `classic token` in.
+7. Vul in Key Vault de overige placeholder-secrets met echte waarden.
+8. Start de workflow nog een keer of herstart de Web App.
 
 ## GitHub Secrets
 
@@ -42,9 +36,7 @@ Toelichting:
 
 ## GitHub Variables
 
-Deze moeten als `Repository variables` in GitHub komen.
-
-Aanbevolen invulling voor jullie omgeving:
+Deze moeten als `Repository variables` in GitHub komen:
 
 - `AZURE_RESOURCE_GROUP=Solvaters`
 - `AZURE_LOCATION=westeurope`
@@ -53,52 +45,72 @@ Aanbevolen invulling voor jullie omgeving:
 - `AZURE_STATIC_WEB_APP_NAME=solvaters-voorcalculatie-web`
 - `AZURE_KEY_VAULT_NAME=solvaters-kluis`
 - `AFAS_SECRET_APP_NAME=solvaters-voorcalculatie`
-- `AFAS_SECRET_ENVIRONMENT_NUMBER=93567`
-- `AZURE_FRONTEND_APP_URL=`
-- `AFAS_OAUTH_REDIRECT_URI=`
-- `AFAS_OAUTH_SCOPE=`
 - `VITE_API_BASE_URL=https://solvaters-voorcalculatie-api.azurewebsites.net`
 
-Toelichting:
+Deze variables juist niet aanmaken zolang je de defaults wilt gebruiken:
 
-- Laat `AZURE_FRONTEND_APP_URL` eerst leeg. De Bicep-template vult dan standaard `https://<static-web-app-name>.azurestaticapps.net` in voor backend CORS.
-- Laat `AFAS_OAUTH_REDIRECT_URI` eerst leeg. De Bicep-template gebruikt dan standaard `https://<web-app-name>.azurewebsites.net/api/afas/oauth/callback`.
-- `AFAS_OAUTH_SCOPE` is optioneel en mag leeg blijven zolang AFAS geen extra scope vereist.
+- `AZURE_FRONTEND_APP_URL`
+- `AFAS_OAUTH_REDIRECT_URI`
+- `AFAS_OAUTH_SCOPE`
+
+## Eerste Workflow-run
+
+Bij de eerste workflow-run gebeurt automatisch:
+
+- uitrollen of bijwerken van `App Service Plan`, `Web App` en `Static Web App`
+- toekennen van een schrijvende Key Vault-rol aan de Web App identity
+- deployen van backend en frontend
+
+Na deze eerste run open je de instellingenpagina van de app en vul je in:
+
+- `omgevingsnummer`
+- `omgevingstype`
+- `classic token`
+
+Bij opslaan schrijft de backend deze drie waarden naar Key Vault, zet hij het actieve omgevingsnummer vast en maakt hij automatisch de overige secret-namen aan met placeholder `__SET_REAL_VALUE__`.
 
 ## Key Vault Secrets
 
-Deze secrets moeten in `solvaters-kluis` aanwezig zijn.
+De backend gebruikt altijd eerst dit centrale secret:
 
-De GitHub workflow maakt ontbrekende secret-namen automatisch aan met placeholderwaarde `__SET_REAL_VALUE__`.
-Je hoeft de namen dus niet handmatig aan te maken, alleen daarna de echte waarden in te vullen.
+- `afas-solvaters-voorcalculatie-active-environment-number`
 
-Verwachte secret-namen volgens het schaalbare patroon:
+Dat secret bepaalt welke AFAS-omgeving op dat moment actief is voor deze app.
 
-- `afas-solvaters-voorcalculatie-93567-environment-id`
-- `afas-solvaters-voorcalculatie-93567-environment-type`
-- `afas-solvaters-voorcalculatie-93567-token`
-- `afas-solvaters-voorcalculatie-93567-publickey-secrets`
-- `afas-solvaters-voorcalculatie-93567-oauth-client-id`
-- `afas-solvaters-voorcalculatie-93567-oauth-client-secret`
-- `afas-solvaters-voorcalculatie-93567-encryption-key`
-- `afas-solvaters-voorcalculatie-93567-azure-table-storage-connection-string`
+Daarna horen bij dat omgevingsnummer deze secrets:
+
+- `afas-solvaters-voorcalculatie-<omgevingsnummer>-environment-id`
+- `afas-solvaters-voorcalculatie-<omgevingsnummer>-environment-type`
+- `afas-solvaters-voorcalculatie-<omgevingsnummer>-token`
+- `afas-solvaters-voorcalculatie-<omgevingsnummer>-publickey-secrets`
+- `afas-solvaters-voorcalculatie-<omgevingsnummer>-oauth-client-id`
+- `afas-solvaters-voorcalculatie-<omgevingsnummer>-oauth-client-secret`
+- `afas-solvaters-voorcalculatie-<omgevingsnummer>-encryption-key`
+- `afas-solvaters-voorcalculatie-<omgevingsnummer>-azure-table-storage-connection-string`
 
 Aanbevolen invulling:
 
 - `...-environment-id`: jullie AFAS omgeving-id
-- `...-environment-type`: `production` of `test`
+- `...-environment-type`: `production`, `test` of `accept`
 - `...-token`: huidige classic token
 - `...-publickey-secrets`: JSON zoals `{"<publickey>":"<secret>"}`
 - `...-oauth-client-id`: AFAS OAuth client id
 - `...-oauth-client-secret`: AFAS OAuth client secret
-- `...-encryption-key`: sterke geheime sleutel voor app-level encryptie van OAuth access/refresh tokens in Table Storage
+- `...-encryption-key`: sterke geheime sleutel voor app-level encryptie van OAuth tokens in Table Storage
 - `...-azure-table-storage-connection-string`: connection string van `solvatersopslag`
 
-Na de eerste deployment:
+Na opslaan in de instellingenpagina:
 
 1. open `solvaters-kluis`
-2. zoek op `afas-solvaters-voorcalculatie-93567-`
-3. vervang elke placeholder `__SET_REAL_VALUE__` door de echte secretwaarde
+2. controleer dat `afas-solvaters-voorcalculatie-active-environment-number` op het ingevulde omgevingsnummer staat
+3. zoek op `afas-solvaters-voorcalculatie-<omgevingsnummer>-`
+4. vervang elke placeholder `__SET_REAL_VALUE__` door de echte secretwaarde
+
+Belangrijk:
+
+- verander je later in de app het `omgevingsnummer`, dan schrijft de backend automatisch een nieuwe secretset onder dat nieuwe nummer en werkt hij `afas-solvaters-voorcalculatie-active-environment-number` bij
+- bestaande secrets onder oude omgevingsnummers worden niet automatisch hernoemd of verwijderd
+- je hoeft dus niet handmatig Key Vault-namen "te fixen"; de app schakelt via het actieve-omgevingsnummer-secret naar de juiste set
 
 ## Entra ID / rechten
 
@@ -107,34 +119,21 @@ De GitHub OIDC app/service principal moet minimaal dit kunnen:
 - deployments uitvoeren in resource group `Solvaters`
 - Web App / Static Web App / App Service Plan aanmaken of bijwerken
 - roltoewijzingen zetten op `solvaters-kluis`
-- secrets lezen uit `solvaters-kluis` hoeft niet voor GitHub Actions zelf, wel voor de Web App identity na deployment
 
 Praktisch advies:
 
 - geef de GitHub deployment identity `Contributor` op resource group `Solvaters`
-- laat Bicep de Key Vault rol voor de Web App identity regelen
+- geef diezelfde identity `Administrator voor gebruikerstoegang` of gelijkwaardig als de workflow role assignments op `solvaters-kluis` moet zetten
+- laat Bicep de Key Vault schrijfrechten voor de Web App identity regelen
 
-## Wat de workflow daarna doet
-
-Bij push naar `main`:
-
-1. build backend
-2. build frontend
-3. login op Azure via OIDC
-4. deploy infra met Bicep
-5. deploy backend naar Web App
-6. haal Static Web App deployment token op
-7. deploy frontend naar Static Web App
-
-## Eerste run checklist
-
-Voor de eerste echte deployment:
+## Checklist
 
 - GitHub repo aangemaakt
 - eerste push gedaan
 - GitHub secrets ingevuld
 - GitHub variables ingevuld
-- Key Vault secrets ingevuld
 - Entra OIDC koppeling actief
-
-Als dat staat, kun je de workflow handmatig starten via `workflow_dispatch` of gewoon pushen naar `main`.
+- eerste workflow-run gedaan
+- in de app-instellingen `omgevingsnummer`, `omgevingstype` en `classic token` opgeslagen
+- placeholder secrets in `solvaters-kluis` vervangen door echte waarden
+- tweede workflow-run gedaan of Web App herstart
