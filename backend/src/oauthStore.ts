@@ -5,6 +5,7 @@ export type PendingAfasOAuthState = {
   appSessionId: string;
   iframeSessionId?: string;
   createdAt: number;
+  codeVerifier?: string;
 };
 
 export type AfasOAuthSession = {
@@ -28,6 +29,7 @@ type PendingStateEntity = {
   iframeSessionId?: string;
   createdAt: string;
   expiresAt: string;
+  codeVerifier?: string;
 };
 
 type OAuthSessionEntity = {
@@ -149,6 +151,7 @@ function createTableOAuthStore(
       appSessionId: entity.appSessionId,
       iframeSessionId: entity.iframeSessionId,
       createdAt: Number(entity.createdAt),
+      codeVerifier: entity.codeVerifier,
     };
   }
 
@@ -182,6 +185,7 @@ function createTableOAuthStore(
         iframeSessionId: pending.iframeSessionId,
         createdAt: String(pending.createdAt),
         expiresAt,
+        codeVerifier: pending.codeVerifier,
       }, 'Replace');
     },
     async getPendingState(state) {

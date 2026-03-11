@@ -1,6 +1,7 @@
 import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
+import { createHash, randomBytes } from 'crypto';
 import {
   AfasConfig,
   AfasEnvironmentType,
@@ -455,6 +456,22 @@ async function cleanupExpiredOAuthStates() {
 
 function createOAuthStateValue() {
   return `${nowMs().toString(36)}-${Math.random().toString(36).slice(2, 12)}`;
+}
+
+function toBase64Url(buffer: Buffer) {
+  return buffer
+    .toString('base64')
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_')
+    .replace(/=+$/g, '');
+}
+
+function createPkceCodeVerifier() {
+  return toBase64Url(randomBytes(32));
+}
+
+function createPkceCodeChallenge(codeVerifier: string) {
+  return toBase64Url(createHash('sha256').update(codeVerifier, 'utf8').digest());
 }
 
 function getAfasOAuthAuthorizeUrl(config: AfasConfig) {
@@ -1614,16 +1631,21 @@ app.get('/api/afas/oauth/start', async (req, res) => {
     if (!appSessionId) return res.status(400).send('appSessionId ontbreekt.');
     const iframeSessionId = getRequestIframeSessionId(req) || undefined;
     const state = createOAuthStateValue();
+    const codeVerifier = createPkceCodeVerifier();
+    const codeChallenge = createPkceCodeChallenge(codeVerifier);
     await oauthStore.savePendingState(state, {
       appSessionId,
       iframeSessionId,
       createdAt: nowMs(),
+      codeVerifier,
     });
     const url = new URL(getAfasOAuthAuthorizeUrl(afasConfig));
     url.searchParams.set('response_type', 'code');
     url.searchParams.set('client_id', oauthConfig.clientId);
     url.searchParams.set('redirect_uri', oauthConfig.redirectUri);
     url.searchParams.set('state', state);
+    url.searchParams.set('code_challenge', codeChallenge);
+    url.searchParams.set('code_challenge_method', 'S256');
     if (oauthConfig.scope) url.searchParams.set('scope', oauthConfig.scope);
     return res.redirect(url.toString());
   } catch (error) {
@@ -1644,6 +1666,7 @@ app.get('/api/afas/oauth/callback', async (req, res) => {
     const pending = await oauthStore.getPendingState(state);
     await oauthStore.deletePendingState(state);
     if (!pending) throw new Error('AFAS OAuth state is verlopen of onbekend.');
+    if (!pending.codeVerifier) throw new Error('AFAS OAuth PKCE verifier ontbreekt. Start de login opnieuw.');
 
     const formPayload = new URLSearchParams();
     formPayload.set('grant_type', 'authorization_code');
@@ -1651,6 +1674,7 @@ app.get('/api/afas/oauth/callback', async (req, res) => {
     formPayload.set('redirect_uri', oauthConfig.redirectUri);
     formPayload.set('client_id', oauthConfig.clientId);
     formPayload.set('client_secret', oauthConfig.clientSecret);
+    formPayload.set('code_verifier', pending.codeVerifier);
     const tokenPayload = await exchangeAfasOAuthToken(formPayload);
     const iframeProfile = pending.iframeSessionId ? iframeSessions.get(pending.iframeSessionId) : undefined;
     const session: AfasOAuthSession = {
