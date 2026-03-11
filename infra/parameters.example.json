@@ -6,13 +6,13 @@
       "value": "westeurope"
     },
     "appServicePlanName": {
-      "value": "solvaters-voorcalc-plan"
+      "value": "solvaters-voorcalculatie-plan"
     },
     "webAppName": {
-      "value": "solvaters-voorcalc-api"
+      "value": "solvaters-voorcalculatie-api"
     },
     "staticWebAppName": {
-      "value": "solvaters-voorcalc-web"
+      "value": "solvaters-voorcalculatie-web"
     },
     "keyVaultName": {
       "value": "your-key-vault-name"

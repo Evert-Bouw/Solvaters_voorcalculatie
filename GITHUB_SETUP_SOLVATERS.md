@@ -48,14 +48,14 @@ Aanbevolen invulling voor jullie omgeving:
 
 - `AZURE_RESOURCE_GROUP=Solvaters`
 - `AZURE_LOCATION=westeurope`
-- `AZURE_APP_SERVICE_PLAN_NAME=solvaters-voorcalc-plan`
-- `AZURE_WEBAPP_NAME=solvaters-voorcalc-api`
-- `AZURE_STATIC_WEB_APP_NAME=solvaters-voorcalc-web`
+- `AZURE_APP_SERVICE_PLAN_NAME=solvaters-voorcalculatie-plan`
+- `AZURE_WEBAPP_NAME=solvaters-voorcalculatie-api`
+- `AZURE_STATIC_WEB_APP_NAME=solvaters-voorcalculatie-web`
 - `AZURE_KEY_VAULT_NAME=solvaters-kluis`
 - `AZURE_FRONTEND_APP_URL=`
 - `AFAS_OAUTH_REDIRECT_URI=`
 - `AFAS_OAUTH_SCOPE=`
-- `VITE_API_BASE_URL=https://solvaters-voorcalc-api.azurewebsites.net`
+- `VITE_API_BASE_URL=https://solvaters-voorcalculatie-api.azurewebsites.net`
 
 Toelichting:
 
