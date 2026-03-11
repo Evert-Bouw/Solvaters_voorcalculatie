@@ -53,6 +53,12 @@ Deze variables juist niet aanmaken zolang je de defaults wilt gebruiken:
 - `AFAS_OAUTH_REDIRECT_URI`
 - `AFAS_OAUTH_SCOPE`
 
+Standaard OAuth redirect-URL voor AFAS:
+
+- `https://solvaters-voorcalculatie-api.azurewebsites.net/api/afas/oauth/callback`
+
+Die URL moet exact zo in AFAS bij de OAuth app connector geregistreerd worden, tenzij je bewust `AFAS_OAUTH_REDIRECT_URI` overrult.
+
 ## Eerste Workflow-run
 
 Bij de eerste workflow-run gebeurt automatisch:

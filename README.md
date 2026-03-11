@@ -151,6 +151,7 @@ Samenvatting:
 - de Web App krijgt `AZURE_KEY_VAULT_NAME` en `AFAS_SECRET_APP_NAME` als app settings en leest/schrijft daarna zelf Key Vault secrets via managed identity
 - in de instellingenpagina vul je `omgevingsnummer`, `omgevingstype` en `classic token` in; de backend schrijft die naar Key Vault, zet `afas-<appnaam>-active-environment-number` en maakt de overige app-specifieke secret-namen als placeholder `__SET_REAL_VALUE__` aan
 - daarna hoeven alleen de resterende echte secretwaarden nog in `Key Vault` ingevuld te worden
+- de standaard AFAS OAuth redirect-URL is `https://solvaters-voorcalculatie-api.azurewebsites.net/api/afas/oauth/callback`, tenzij `AFAS_OAUTH_REDIRECT_URI` expliciet is gezet
 - de GitHub deployment identity heeft minimaal `Contributor` op resource group `Solvaters` en `Administrator voor gebruikerstoegang` of gelijkwaardig voor de Key Vault role assignment nodig
 
 ## Starten
