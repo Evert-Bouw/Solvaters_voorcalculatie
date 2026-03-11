@@ -17,6 +17,12 @@
     "keyVaultName": {
       "value": "your-key-vault-name"
     },
+    "afasSecretAppName": {
+      "value": "solvaters-voorcalculatie"
+    },
+    "afasSecretEnvironmentNumber": {
+      "value": "93567"
+    },
     "frontendAppUrl": {
       "value": ""
     },

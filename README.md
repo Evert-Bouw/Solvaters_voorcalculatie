@@ -159,6 +159,8 @@ GitHub variables:
 - `AZURE_WEBAPP_NAME`
 - `AZURE_STATIC_WEB_APP_NAME`
 - `AZURE_KEY_VAULT_NAME`
+- `AFAS_SECRET_APP_NAME`
+- `AFAS_SECRET_ENVIRONMENT_NUMBER`
 - `AZURE_FRONTEND_APP_URL`
 - `AFAS_OAUTH_REDIRECT_URI`
 - `AFAS_OAUTH_SCOPE`
@@ -166,14 +168,25 @@ GitHub variables:
 
 Verwachte Key Vault secrets:
 
-- `AFAS-ENVIRONMENT-ID`
-- `AFAS-ENVIRONMENT-TYPE`
-- `AFAS-TOKEN`
-- `AFAS-PUBLICKEY-SECRETS`
-- `AFAS-OAUTH-CLIENT-ID`
-- `AFAS-OAUTH-CLIENT-SECRET`
-- `AFAS-ENCRYPTION-KEY`
-- `AZURE-TABLE-STORAGE-CONNECTION-STRING`
+- `afas-<appnaam>-<omgevingsnummer>-environment-id`
+- `afas-<appnaam>-<omgevingsnummer>-environment-type`
+- `afas-<appnaam>-<omgevingsnummer>-token`
+- `afas-<appnaam>-<omgevingsnummer>-publickey-secrets`
+- `afas-<appnaam>-<omgevingsnummer>-oauth-client-id`
+- `afas-<appnaam>-<omgevingsnummer>-oauth-client-secret`
+- `afas-<appnaam>-<omgevingsnummer>-encryption-key`
+- `afas-<appnaam>-<omgevingsnummer>-azure-table-storage-connection-string`
+
+Voorbeeld voor app `solvaters-voorcalculatie`, omgeving `93567`:
+
+- `afas-solvaters-voorcalculatie-93567-environment-id`
+- `afas-solvaters-voorcalculatie-93567-environment-type`
+- `afas-solvaters-voorcalculatie-93567-token`
+- `afas-solvaters-voorcalculatie-93567-publickey-secrets`
+- `afas-solvaters-voorcalculatie-93567-oauth-client-id`
+- `afas-solvaters-voorcalculatie-93567-oauth-client-secret`
+- `afas-solvaters-voorcalculatie-93567-encryption-key`
+- `afas-solvaters-voorcalculatie-93567-azure-table-storage-connection-string`
 
 De workflow:
 

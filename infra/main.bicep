@@ -29,29 +29,35 @@ param linuxFxVersion string = 'NODE|20-lts'
 @description('Frontend URL allowed by backend CORS.')
 param frontendAppUrl string = ''
 
-@description('Name of the Key Vault secret that contains AFAS_ENVIRONMENT_ID.')
-param afasEnvironmentIdSecretName string = 'AFAS-ENVIRONMENT-ID'
+@description('Application name used in AFAS Key Vault secret naming.')
+param afasSecretAppName string = 'solvaters-voorcalculatie'
 
-@description('Name of the Key Vault secret that contains AFAS_ENVIRONMENT_TYPE.')
-param afasEnvironmentTypeSecretName string = 'AFAS-ENVIRONMENT-TYPE'
+@description('AFAS environment number used in Key Vault secret naming, for example 93567.')
+param afasSecretEnvironmentNumber string
 
-@description('Name of the Key Vault secret that contains AFAS_TOKEN.')
-param afasTokenSecretName string = 'AFAS-TOKEN'
+@description('Optional override for the AFAS environment id secret name.')
+param afasEnvironmentIdSecretName string = ''
 
-@description('Name of the Key Vault secret that contains AFAS_PUBLICKEY_SECRETS.')
-param afasPublicKeySecretsSecretName string = 'AFAS-PUBLICKEY-SECRETS'
+@description('Optional override for the AFAS environment type secret name.')
+param afasEnvironmentTypeSecretName string = ''
 
-@description('Name of the Key Vault secret that contains AFAS_OAUTH_CLIENT_ID.')
-param afasOauthClientIdSecretName string = 'AFAS-OAUTH-CLIENT-ID'
+@description('Optional override for the AFAS classic token secret name.')
+param afasTokenSecretName string = ''
 
-@description('Name of the Key Vault secret that contains AFAS_OAUTH_CLIENT_SECRET.')
-param afasOauthClientSecretSecretName string = 'AFAS-OAUTH-CLIENT-SECRET'
+@description('Optional override for the AFAS public key secrets secret name.')
+param afasPublicKeySecretsSecretName string = ''
 
-@description('Name of the Key Vault secret that contains AFAS_ENCRYPTION_KEY.')
-param afasEncryptionKeySecretName string = 'AFAS-ENCRYPTION-KEY'
+@description('Optional override for the AFAS OAuth client id secret name.')
+param afasOauthClientIdSecretName string = ''
 
-@description('Name of the Key Vault secret that contains AZURE_TABLE_STORAGE_CONNECTION_STRING.')
-param azureTableStorageConnectionStringSecretName string = 'AZURE-TABLE-STORAGE-CONNECTION-STRING'
+@description('Optional override for the AFAS OAuth client secret secret name.')
+param afasOauthClientSecretSecretName string = ''
+
+@description('Optional override for the AFAS encryption key secret name.')
+param afasEncryptionKeySecretName string = ''
+
+@description('Optional override for the Azure Table Storage connection string secret name.')
+param azureTableStorageConnectionStringSecretName string = ''
 
 @description('Optional override for the OAuth redirect URI. Leave empty to use https://<webapp>/api/afas/oauth/callback.')
 param afasOauthRedirectUri string = ''
@@ -68,6 +74,15 @@ param azureTableStorageOAuthSessionTable string = 'AfasOAuthSession'
 var keyVaultSecretUriBase = 'https://${keyVaultName}.vault.azure.net/secrets'
 var resolvedFrontendUrl = empty(frontendAppUrl) ? 'https://${staticWebAppName}.azurestaticapps.net' : frontendAppUrl
 var resolvedOauthRedirectUri = empty(afasOauthRedirectUri) ? 'https://${webAppName}.azurewebsites.net/api/afas/oauth/callback' : afasOauthRedirectUri
+var afasSecretPrefix = 'afas-${afasSecretAppName}-${afasSecretEnvironmentNumber}'
+var resolvedAfasEnvironmentIdSecretName = empty(afasEnvironmentIdSecretName) ? '${afasSecretPrefix}-environment-id' : afasEnvironmentIdSecretName
+var resolvedAfasEnvironmentTypeSecretName = empty(afasEnvironmentTypeSecretName) ? '${afasSecretPrefix}-environment-type' : afasEnvironmentTypeSecretName
+var resolvedAfasTokenSecretName = empty(afasTokenSecretName) ? '${afasSecretPrefix}-token' : afasTokenSecretName
+var resolvedAfasPublicKeySecretsSecretName = empty(afasPublicKeySecretsSecretName) ? '${afasSecretPrefix}-publickey-secrets' : afasPublicKeySecretsSecretName
+var resolvedAfasOauthClientIdSecretName = empty(afasOauthClientIdSecretName) ? '${afasSecretPrefix}-oauth-client-id' : afasOauthClientIdSecretName
+var resolvedAfasOauthClientSecretSecretName = empty(afasOauthClientSecretSecretName) ? '${afasSecretPrefix}-oauth-client-secret' : afasOauthClientSecretSecretName
+var resolvedAfasEncryptionKeySecretName = empty(afasEncryptionKeySecretName) ? '${afasSecretPrefix}-encryption-key' : afasEncryptionKeySecretName
+var resolvedAzureTableStorageConnectionStringSecretName = empty(azureTableStorageConnectionStringSecretName) ? '${afasSecretPrefix}-azure-table-storage-connection-string' : azureTableStorageConnectionStringSecretName
 
 resource keyVault 'Microsoft.KeyVault/vaults@2023-07-01' existing = {
   name: keyVaultName
@@ -111,31 +126,31 @@ resource webApp 'Microsoft.Web/sites@2023-12-01' = {
         }
         {
           name: 'AFAS_ENVIRONMENT_ID'
-          value: '@Microsoft.KeyVault(SecretUri=${keyVaultSecretUriBase}/${afasEnvironmentIdSecretName})'
+          value: '@Microsoft.KeyVault(SecretUri=${keyVaultSecretUriBase}/${resolvedAfasEnvironmentIdSecretName})'
         }
         {
           name: 'AFAS_ENVIRONMENT_TYPE'
-          value: '@Microsoft.KeyVault(SecretUri=${keyVaultSecretUriBase}/${afasEnvironmentTypeSecretName})'
+          value: '@Microsoft.KeyVault(SecretUri=${keyVaultSecretUriBase}/${resolvedAfasEnvironmentTypeSecretName})'
         }
         {
           name: 'AFAS_TOKEN'
-          value: '@Microsoft.KeyVault(SecretUri=${keyVaultSecretUriBase}/${afasTokenSecretName})'
+          value: '@Microsoft.KeyVault(SecretUri=${keyVaultSecretUriBase}/${resolvedAfasTokenSecretName})'
         }
         {
           name: 'AFAS_PUBLICKEY_SECRETS'
-          value: '@Microsoft.KeyVault(SecretUri=${keyVaultSecretUriBase}/${afasPublicKeySecretsSecretName})'
+          value: '@Microsoft.KeyVault(SecretUri=${keyVaultSecretUriBase}/${resolvedAfasPublicKeySecretsSecretName})'
         }
         {
           name: 'AFAS_OAUTH_CLIENT_ID'
-          value: '@Microsoft.KeyVault(SecretUri=${keyVaultSecretUriBase}/${afasOauthClientIdSecretName})'
+          value: '@Microsoft.KeyVault(SecretUri=${keyVaultSecretUriBase}/${resolvedAfasOauthClientIdSecretName})'
         }
         {
           name: 'AFAS_OAUTH_CLIENT_SECRET'
-          value: '@Microsoft.KeyVault(SecretUri=${keyVaultSecretUriBase}/${afasOauthClientSecretSecretName})'
+          value: '@Microsoft.KeyVault(SecretUri=${keyVaultSecretUriBase}/${resolvedAfasOauthClientSecretSecretName})'
         }
         {
           name: 'AFAS_ENCRYPTION_KEY'
-          value: '@Microsoft.KeyVault(SecretUri=${keyVaultSecretUriBase}/${afasEncryptionKeySecretName})'
+          value: '@Microsoft.KeyVault(SecretUri=${keyVaultSecretUriBase}/${resolvedAfasEncryptionKeySecretName})'
         }
         {
           name: 'AFAS_OAUTH_REDIRECT_URI'
@@ -147,7 +162,7 @@ resource webApp 'Microsoft.Web/sites@2023-12-01' = {
         }
         {
           name: 'AZURE_TABLE_STORAGE_CONNECTION_STRING'
-          value: '@Microsoft.KeyVault(SecretUri=${keyVaultSecretUriBase}/${azureTableStorageConnectionStringSecretName})'
+          value: '@Microsoft.KeyVault(SecretUri=${keyVaultSecretUriBase}/${resolvedAzureTableStorageConnectionStringSecretName})'
         }
         {
           name: 'AZURE_TABLE_STORAGE_OAUTH_STATE_TABLE'

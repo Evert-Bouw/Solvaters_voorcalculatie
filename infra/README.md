@@ -17,14 +17,24 @@ Het template maakt of beheert:
 
 ## Verwachte Key Vault Secrets
 
-- `AFAS-ENVIRONMENT-ID`
-- `AFAS-ENVIRONMENT-TYPE`
-- `AFAS-TOKEN`
-- `AFAS-PUBLICKEY-SECRETS`
-- `AFAS-OAUTH-CLIENT-ID`
-- `AFAS-OAUTH-CLIENT-SECRET`
-- `AFAS-ENCRYPTION-KEY`
-- `AZURE-TABLE-STORAGE-CONNECTION-STRING`
+Standaard bouwt het template secret-namen op met dit patroon:
+
+- `afas-<appnaam>-<omgevingsnummer>-<doel>`
+
+Voorbeeld:
+
+- `afas-solvaters-voorcalculatie-93567-token`
+
+Verwachte doelen:
+
+- `environment-id`
+- `environment-type`
+- `token`
+- `publickey-secrets`
+- `oauth-client-id`
+- `oauth-client-secret`
+- `encryption-key`
+- `azure-table-storage-connection-string`
 
 ## Parameters
 

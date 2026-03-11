@@ -52,6 +52,8 @@ Aanbevolen invulling voor jullie omgeving:
 - `AZURE_WEBAPP_NAME=solvaters-voorcalculatie-api`
 - `AZURE_STATIC_WEB_APP_NAME=solvaters-voorcalculatie-web`
 - `AZURE_KEY_VAULT_NAME=solvaters-kluis`
+- `AFAS_SECRET_APP_NAME=solvaters-voorcalculatie`
+- `AFAS_SECRET_ENVIRONMENT_NUMBER=93567`
 - `AZURE_FRONTEND_APP_URL=`
 - `AFAS_OAUTH_REDIRECT_URI=`
 - `AFAS_OAUTH_SCOPE=`
@@ -67,27 +69,27 @@ Toelichting:
 
 Deze secrets moeten in `solvaters-kluis` aanwezig zijn.
 
-Verwachte secret-namen:
+Verwachte secret-namen volgens het schaalbare patroon:
 
-- `AFAS-ENVIRONMENT-ID`
-- `AFAS-ENVIRONMENT-TYPE`
-- `AFAS-TOKEN`
-- `AFAS-PUBLICKEY-SECRETS`
-- `AFAS-OAUTH-CLIENT-ID`
-- `AFAS-OAUTH-CLIENT-SECRET`
-- `AFAS-ENCRYPTION-KEY`
-- `AZURE-TABLE-STORAGE-CONNECTION-STRING`
+- `afas-solvaters-voorcalculatie-93567-environment-id`
+- `afas-solvaters-voorcalculatie-93567-environment-type`
+- `afas-solvaters-voorcalculatie-93567-token`
+- `afas-solvaters-voorcalculatie-93567-publickey-secrets`
+- `afas-solvaters-voorcalculatie-93567-oauth-client-id`
+- `afas-solvaters-voorcalculatie-93567-oauth-client-secret`
+- `afas-solvaters-voorcalculatie-93567-encryption-key`
+- `afas-solvaters-voorcalculatie-93567-azure-table-storage-connection-string`
 
 Aanbevolen invulling:
 
-- `AFAS-ENVIRONMENT-ID`: jullie AFAS omgeving-id
-- `AFAS-ENVIRONMENT-TYPE`: `production` of `test`
-- `AFAS-TOKEN`: huidige classic token
-- `AFAS-PUBLICKEY-SECRETS`: JSON zoals `{"<publickey>":"<secret>"}`
-- `AFAS-OAUTH-CLIENT-ID`: AFAS OAuth client id
-- `AFAS-OAUTH-CLIENT-SECRET`: AFAS OAuth client secret
-- `AFAS-ENCRYPTION-KEY`: sterke geheime sleutel voor app-level encryptie van OAuth access/refresh tokens in Table Storage
-- `AZURE-TABLE-STORAGE-CONNECTION-STRING`: connection string van `solvatersopslag`
+- `...-environment-id`: jullie AFAS omgeving-id
+- `...-environment-type`: `production` of `test`
+- `...-token`: huidige classic token
+- `...-publickey-secrets`: JSON zoals `{"<publickey>":"<secret>"}`
+- `...-oauth-client-id`: AFAS OAuth client id
+- `...-oauth-client-secret`: AFAS OAuth client secret
+- `...-encryption-key`: sterke geheime sleutel voor app-level encryptie van OAuth access/refresh tokens in Table Storage
+- `...-azure-table-storage-connection-string`: connection string van `solvatersopslag`
 
 ## Entra ID / rechten
 

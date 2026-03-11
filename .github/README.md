@@ -14,6 +14,8 @@
 - `AZURE_WEBAPP_NAME`
 - `AZURE_STATIC_WEB_APP_NAME`
 - `AZURE_KEY_VAULT_NAME`
+- `AFAS_SECRET_APP_NAME`
+- `AFAS_SECRET_ENVIRONMENT_NUMBER`
 - `AZURE_FRONTEND_APP_URL`
 - `AFAS_OAUTH_REDIRECT_URI`
 - `AFAS_OAUTH_SCOPE`
@@ -29,11 +31,11 @@ The workflow creates or updates the Web App, App Service plan and Static Web App
 
 Required Key Vault secrets for the backend include at least:
 
-- `AFAS-ENVIRONMENT-ID`
-- `AFAS-ENVIRONMENT-TYPE`
-- `AFAS-TOKEN`
-- `AFAS-PUBLICKEY-SECRETS`
-- `AFAS-OAUTH-CLIENT-ID`
-- `AFAS-OAUTH-CLIENT-SECRET`
-- `AFAS-ENCRYPTION-KEY`
-- `AZURE-TABLE-STORAGE-CONNECTION-STRING`
+- `afas-<appnaam>-<omgevingsnummer>-environment-id`
+- `afas-<appnaam>-<omgevingsnummer>-environment-type`
+- `afas-<appnaam>-<omgevingsnummer>-token`
+- `afas-<appnaam>-<omgevingsnummer>-publickey-secrets`
+- `afas-<appnaam>-<omgevingsnummer>-oauth-client-id`
+- `afas-<appnaam>-<omgevingsnummer>-oauth-client-secret`
+- `afas-<appnaam>-<omgevingsnummer>-encryption-key`
+- `afas-<appnaam>-<omgevingsnummer>-azure-table-storage-connection-string`
