@@ -73,6 +73,11 @@ Bij de eerste workflow-run gebeurt automatisch:
 - toekennen van een schrijvende Key Vault-rol aan de Web App identity
 - deployen van backend en frontend
 
+Frontend-opmerking:
+
+- de workflow bouwt de Vite-frontend eerst lokaal in GitHub Actions
+- daarna wordt de gebouwde map `frontend/dist` naar `Static Web Apps` geüpload
+
 Na deze eerste run open je de instellingenpagina van de app en vul je in:
 
 - `omgevingsnummer`
