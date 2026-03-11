@@ -53,6 +53,12 @@ Deze variables juist niet aanmaken zolang je de defaults wilt gebruiken:
 - `AFAS_OAUTH_REDIRECT_URI`
 - `AFAS_OAUTH_SCOPE`
 
+Belangrijk voor `Static Web Apps`:
+
+- de publieke frontend-URL wordt door Azure zelf gegenereerd en is meestal niet gelijk aan de resourcenaam
+- een URL zoals `https://polite-pond-09e070603.6.azurestaticapps.net` is normaal
+- `AZURE_FRONTEND_APP_URL` hoef je alleen te zetten als je bewust een eigen frontend-URL wilt forceren
+
 Standaard OAuth redirect-URL voor AFAS:
 
 - `https://solvaters-voorcalculatie-api.azurewebsites.net/api/afas/oauth/callback`

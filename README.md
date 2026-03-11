@@ -148,6 +148,7 @@ Technische bronnen:
 Samenvatting:
 
 - de workflow rolt `App Service Plan`, `Web App` en `Static Web App` uit of werkt ze bij
+- de publieke `Static Web App`-url wordt door Azure bepaald en hoeft niet op de resourcenaam te lijken
 - de Web App krijgt `AZURE_KEY_VAULT_NAME` en `AFAS_SECRET_APP_NAME` als app settings en leest/schrijft daarna zelf Key Vault secrets via managed identity
 - in de instellingenpagina vul je `omgevingsnummer`, `omgevingstype` en `classic token` in; de backend schrijft die naar Key Vault, zet `afas-<appnaam>-active-environment-number` en maakt de overige app-specifieke secret-namen als placeholder `__SET_REAL_VALUE__` aan
 - daarna hoeven alleen de resterende echte secretwaarden nog in `Key Vault` ingevuld te worden

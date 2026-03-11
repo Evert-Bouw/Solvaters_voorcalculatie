@@ -44,7 +44,6 @@ param azureTableStorageOAuthStateTable string = 'AfasOAuthState'
 @description('Table name for persisted OAuth sessions.')
 param azureTableStorageOAuthSessionTable string = 'AfasOAuthSession'
 
-var resolvedFrontendUrl = empty(frontendAppUrl) ? 'https://${staticWebAppName}.azurestaticapps.net' : frontendAppUrl
 var resolvedOauthRedirectUri = empty(afasOauthRedirectUri) ? 'https://${webAppName}.azurewebsites.net/api/afas/oauth/callback' : afasOauthRedirectUri
 
 resource keyVault 'Microsoft.KeyVault/vaults@2023-07-01' existing = {
@@ -63,6 +62,21 @@ resource appServicePlan 'Microsoft.Web/serverfarms@2023-12-01' = {
     reserved: true
   }
 }
+
+resource staticWebApp 'Microsoft.Web/staticSites@2023-12-01' = {
+  name: staticWebAppName
+  location: location
+  sku: {
+    name: 'Standard'
+    tier: 'Standard'
+  }
+  properties: {
+    allowConfigFileUpdates: true
+    enterpriseGradeCdnStatus: 'Disabled'
+  }
+}
+
+var resolvedFrontendUrl = empty(frontendAppUrl) ? 'https://${staticWebApp.properties.defaultHostname}' : frontendAppUrl
 
 resource webApp 'Microsoft.Web/sites@2023-12-01' = {
   name: webAppName
@@ -117,19 +131,6 @@ resource webApp 'Microsoft.Web/sites@2023-12-01' = {
         }
       ]
     }
-  }
-}
-
-resource staticWebApp 'Microsoft.Web/staticSites@2023-12-01' = {
-  name: staticWebAppName
-  location: location
-  sku: {
-    name: 'Standard'
-    tier: 'Standard'
-  }
-  properties: {
-    allowConfigFileUpdates: true
-    enterpriseGradeCdnStatus: 'Disabled'
   }
 }
 
