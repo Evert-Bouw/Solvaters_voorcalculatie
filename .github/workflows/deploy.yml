@@ -1,0 +1,127 @@
+name: Deploy Azure
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  NODE_VERSION: '20'
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    env:
+      AZURE_RESOURCE_GROUP: ${{ vars.AZURE_RESOURCE_GROUP }}
+      AZURE_LOCATION: ${{ vars.AZURE_LOCATION }}
+      AZURE_APP_SERVICE_PLAN_NAME: ${{ vars.AZURE_APP_SERVICE_PLAN_NAME }}
+      AZURE_WEBAPP_NAME: ${{ vars.AZURE_WEBAPP_NAME }}
+      AZURE_STATIC_WEB_APP_NAME: ${{ vars.AZURE_STATIC_WEB_APP_NAME }}
+      AZURE_KEY_VAULT_NAME: ${{ vars.AZURE_KEY_VAULT_NAME }}
+      AZURE_FRONTEND_APP_URL: ${{ vars.AZURE_FRONTEND_APP_URL }}
+      AFAS_OAUTH_REDIRECT_URI: ${{ vars.AFAS_OAUTH_REDIRECT_URI }}
+      AFAS_OAUTH_SCOPE: ${{ vars.AFAS_OAUTH_SCOPE }}
+      VITE_API_BASE_URL: ${{ vars.VITE_API_BASE_URL }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: |
+            package-lock.json
+            backend/package-lock.json
+            frontend/package-lock.json
+
+      - name: Install root dependencies
+        run: npm ci
+
+      - name: Install backend dependencies
+        run: npm --prefix backend ci
+
+      - name: Install frontend dependencies
+        run: npm --prefix frontend ci
+
+      - name: Build backend
+        run: npm --prefix backend run build
+
+      - name: Build frontend
+        run: npm --prefix frontend run build
+        env:
+          VITE_API_BASE_URL: ${{ env.VITE_API_BASE_URL }}
+
+      - name: Azure login
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Validate deployment variables
+        run: |
+          test -n "$AZURE_RESOURCE_GROUP"
+          test -n "$AZURE_LOCATION"
+          test -n "$AZURE_APP_SERVICE_PLAN_NAME"
+          test -n "$AZURE_WEBAPP_NAME"
+          test -n "$AZURE_STATIC_WEB_APP_NAME"
+          test -n "$AZURE_KEY_VAULT_NAME"
+          test -n "$VITE_API_BASE_URL"
+
+      - name: Deploy infrastructure
+        run: |
+          az deployment group create \
+            --resource-group "$AZURE_RESOURCE_GROUP" \
+            --template-file infra/main.bicep \
+            --parameters \
+              location="$AZURE_LOCATION" \
+              appServicePlanName="$AZURE_APP_SERVICE_PLAN_NAME" \
+              webAppName="$AZURE_WEBAPP_NAME" \
+              staticWebAppName="$AZURE_STATIC_WEB_APP_NAME" \
+              keyVaultName="$AZURE_KEY_VAULT_NAME" \
+              frontendAppUrl="$AZURE_FRONTEND_APP_URL" \
+              afasOauthRedirectUri="$AFAS_OAUTH_REDIRECT_URI" \
+              afasOauthScope="$AFAS_OAUTH_SCOPE"
+
+      - name: Prepare backend package
+        run: |
+          rm -rf .deploy/backend-package backend-package.zip
+          mkdir -p .deploy/backend-package
+          cp -R backend/dist .deploy/backend-package/dist
+          cp backend/package.json .deploy/backend-package/package.json
+          cp backend/package-lock.json .deploy/backend-package/package-lock.json
+          npm ci --omit=dev --prefix .deploy/backend-package
+          cd .deploy/backend-package && zip -r ../../backend-package.zip .
+
+      - name: Deploy backend Web App
+        uses: azure/webapps-deploy@v3
+        with:
+          app-name: ${{ env.AZURE_WEBAPP_NAME }}
+          package: backend-package.zip
+
+      - name: Fetch Static Web App deployment token
+        id: swa_token
+        run: |
+          TOKEN=$(az staticwebapp secrets list \
+            --name "$AZURE_STATIC_WEB_APP_NAME" \
+            --query properties.apiKey \
+            --output tsv)
+          echo "::add-mask::$TOKEN"
+          echo "token=$TOKEN" >> "$GITHUB_OUTPUT"
+
+      - name: Deploy frontend Static Web App
+        uses: Azure/static-web-apps-deploy@v1
+        with:
+          azure_static_web_apps_api_token: ${{ steps.swa_token.outputs.token }}
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          action: upload
+          app_location: frontend
+          output_location: dist
+          skip_app_build: true
