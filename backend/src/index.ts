@@ -972,8 +972,8 @@ function resolveAfasQuotationLineOrder(
 ) {
   const configured = readNumber(row, configuredOrderFieldId);
   if (configured > 0) return configured;
-  const lineNo = readNumber(row, 'LineNo');
-  if (lineNo > 0) return lineNo;
+  const order = readNumber(row, 'order');
+  if (order > 0) return order;
   const configuredDefault = readNumber(row, afasConfig.fields.line.order);
   if (configuredDefault > 0) return configuredDefault;
   return readNumber(row, 'SeqNo');
@@ -989,10 +989,10 @@ const quotationLineGetFieldAliases: Partial<Record<string, string[]>> = {
   'QL-PURCHASE_ENABLED': ['purchaseEnabled'],
   'QL-QTY_BASE': ['baseQty'],
   'QL-UNIT_COST_BASE': ['unitCost'],
-  'QL-PURCHASE_PRICE': ['PurchasePrice'],
+  'QL-PURCHASE_PRICE': ['purchasePrice'],
   'QL-UNIT_PRICE_BASE': ['unitPrice'],
-  'QL-QTY_FORMULA_MEMO': ['qtyFormulaMemo', 'QtyFormulaMemo', 'QTYFORMULAMEMO'],
-  'QL-COST_FORMULA_MEMO': ['costFormulaMemo', 'CostFormulaMemo', 'COSTFORMULAMEMO'],
+  'QL-QTY_FORMULA_MEMO': ['qtyFormulaMemo'],
+  'QL-COST_FORMULA_MEMO': ['costFormulaMemo'],
   'QL-MARKUP_FORMULA_MEMO': ['markupFormulaMemo'],
 };
 

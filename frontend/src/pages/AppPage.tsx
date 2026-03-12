@@ -129,24 +129,6 @@ function compareQuotationLines(a: { quotationId: string; stageId: string; order:
   return a.id.localeCompare(b.id, 'nl');
 }
 
-function mergeConfiguredReadbackFallback(
-  line: QuotationLine,
-  savedLine?: QuotationLineMutation,
-  settings?: Settings,
-): QuotationLine {
-  if (!savedLine || !settings) return line;
-  const mapping = settings.quotationLineConfigurableAfasIds ?? {};
-  const next = { ...line };
-
-  if (mapping['QL-SUPPLIER_ID']) next.supplierId = savedLine.supplierId;
-  if (mapping['QL-QTY_BASE']) next.baseQty = savedLine.baseQty;
-  if (mapping['QL-UNIT_COST_BASE']) next.unitCost = savedLine.unitCost;
-  if (mapping['QL-PURCHASE_PRICE']) next.purchasePrice = savedLine.purchasePrice;
-  if (mapping['QL-UNIT_PRICE_BASE']) next.unitPrice = savedLine.unitPrice;
-
-  return next;
-}
-
 type PhaseMarkupMemoPayload = {
   version: number;
   kind: 'phase_markup_line';
@@ -2018,10 +2000,8 @@ export default function AppPage() {
       await saveQuotationLines(prId, payload);
 
       const refreshed = await fetchQuotationLines(prId);
-      const savedUpdatesById = new Map(update.map((line) => [line.id, line] as const));
       const normalizedRefreshed = [...refreshed]
         .map((line, idx) => ({ ...line, order: Number.isFinite(line.order) ? line.order : idx + 1 }))
-        .map((line) => mergeConfiguredReadbackFallback(line, savedUpdatesById.get(line.id), settings))
         .map((line) => ({
           ...normalizeMeasurementLine(line),
           purchaseEnabled: isNonPurchasableLine(line) ? false : (line.purchaseEnabled ?? true),

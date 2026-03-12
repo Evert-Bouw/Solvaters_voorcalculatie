@@ -66,7 +66,7 @@ const defaultFieldConfig = {
     projectId: 'ProjectId',
     quotationId: 'QuotationId',
     stageId: 'ProjectStage',
-    order: 'LineNo',
+    order: 'order',
     lineType: 'LineType',
     itemCode: 'ItemCodeId',
     description: 'Description',
