@@ -852,6 +852,14 @@ function readFirstString(row: Record<string, unknown>, fieldNames: Array<string 
   return undefined;
 }
 
+function readFirstNumber(row: Record<string, unknown>, fieldNames: Array<string | undefined>) {
+  for (const fieldName of fieldNames) {
+    const value = readNumber(row, fieldName);
+    if (value !== 0) return value;
+  }
+  return 0;
+}
+
 function readNumber(row: Record<string, unknown>, fieldName?: string) {
   if (!fieldName) return 0;
   return sanitizeNumber(row[fieldName]);
@@ -872,6 +880,16 @@ function readRequiredBoolean(row: Record<string, unknown>, fieldName: string, fi
   if (normalized === 'true' || normalized === '1' || normalized === 'ja' || normalized === 'yes') return true;
   if (normalized === 'false' || normalized === '0' || normalized === 'nee' || normalized === 'no') return false;
   throw new Error(`Veld ${fieldLabel} (${fieldName}) bevat geen geldige boolean-waarde.`);
+}
+
+function readFirstBoolean(row: Record<string, unknown>, fieldNames: Array<string | undefined>) {
+  for (const fieldName of fieldNames) {
+    if (!fieldName) continue;
+    const value = row[fieldName];
+    if (value === undefined || value === null || String(value).trim() === '') continue;
+    return readRequiredBoolean(row, fieldName, fieldName);
+  }
+  return undefined;
 }
 
 function normalizeProjectId(value?: string) {
@@ -962,7 +980,28 @@ function resolveAfasQuotationLineOrder(
 }
 
 function hasAfasQuotationLineLineNo(row: Record<string, unknown>) {
-  return readNumber(row, 'LineNo') > 0;
+  return readNumber(row, 'order') > 0;
+}
+
+const quotationLineGetFieldAliases: Partial<Record<string, string[]>> = {
+  'QL-ORDER': ['order'],
+  'QL-SUPPLIER_ID': ['supplierId'],
+  'QL-PURCHASE_ENABLED': ['purchaseEnabled'],
+  'QL-QTY_BASE': ['baseQty'],
+  'QL-UNIT_COST_BASE': ['unitCost'],
+  'QL-PURCHASE_PRICE': ['PurchasePrice'],
+  'QL-UNIT_PRICE_BASE': ['unitPrice'],
+  'QL-QTY_FORMULA_MEMO': ['qtyFormulaMemo', 'QtyFormulaMemo', 'QTYFORMULAMEMO'],
+  'QL-COST_FORMULA_MEMO': ['costFormulaMemo', 'CostFormulaMemo', 'COSTFORMULAMEMO'],
+  'QL-MARKUP_FORMULA_MEMO': ['markupFormulaMemo'],
+};
+
+function getConfiguredReadCandidates(configurableFieldMap: Map<string, string> | undefined, appFieldId: string, ...fallbacks: Array<string | undefined>) {
+  return [
+    configurableFieldMap?.get(appFieldId),
+    ...(quotationLineGetFieldAliases[appFieldId] ?? []),
+    ...fallbacks,
+  ];
 }
 
 function mapAfasQuotationLine(
@@ -984,7 +1023,7 @@ function mapAfasQuotationLine(
   if (!purchaseEnabledFieldId) {
     throw new Error('AFAS_FIELD_LINE_PURCHASE_ENABLED ontbreekt. Stel dit in op PurchaseTrueFalse.');
   }
-  const purchaseEnabled = readRequiredBoolean(row, purchaseEnabledFieldId, 'Inkopen');
+  const purchaseEnabled = readFirstBoolean(row, getConfiguredReadCandidates(configurableFieldMap, 'QL-PURCHASE_ENABLED', purchaseEnabledFieldId)) ?? false;
   const unit = readString(row, afasConfig.fields.line.unit);
   if (!unit) {
     throw new Error(`Eenheid ontbreekt op Solvaters_QuotationLines (${afasConfig.fields.line.unit ?? 'niet ingesteld'}).`);
@@ -996,30 +1035,9 @@ function mapAfasQuotationLine(
     rawLineId,
     itemCode: readString(row, afasConfig.fields.line.itemCode) ?? 'LINE',
   });
-  const qtyFormulaMemoFieldId = configurableFieldMap?.get('QL-QTY_FORMULA_MEMO');
-  const costFormulaMemoFieldId = configurableFieldMap?.get('QL-COST_FORMULA_MEMO');
-  const markupFormulaMemoFieldId = configurableFieldMap?.get('QL-MARKUP_FORMULA_MEMO');
-  const qtyFormulaMemo = readFirstString(row, [
-    qtyFormulaMemoFieldId,
-    'qtyFormulaMemo',
-    'QtyFormulaMemo',
-    'QTYFORMULAMEMO',
-  ]);
-  const costFormulaMemo = readFirstString(row, [
-    costFormulaMemoFieldId,
-    'costFormulaMemo',
-    'CostFormulaMemo',
-    'COSTFORMULAMEMO',
-  ]);
-  const markupFormulaMemo = readFirstString(row, [
-    markupFormulaMemoFieldId,
-    'mxFormulaMemo',
-    'MxFormulaMemo',
-    'MXFORMULAMEMO',
-    'markupFormulaMemo',
-    'MarkupFormulaMemo',
-    'MARKUPFORMULAMEMO',
-  ]);
+  const qtyFormulaMemo = readFirstString(row, getConfiguredReadCandidates(configurableFieldMap, 'QL-QTY_FORMULA_MEMO'));
+  const costFormulaMemo = readFirstString(row, getConfiguredReadCandidates(configurableFieldMap, 'QL-COST_FORMULA_MEMO'));
+  const markupFormulaMemo = readFirstString(row, getConfiguredReadCandidates(configurableFieldMap, 'QL-MARKUP_FORMULA_MEMO'));
 
   return {
     id: lineId,
@@ -1031,14 +1049,17 @@ function mapAfasQuotationLine(
     lineType: readString(row, afasConfig.fields.line.lineType) ?? undefined,
     itemCode: readString(row, afasConfig.fields.line.itemCode) ?? '',
     description: readString(row, afasConfig.fields.line.description) ?? '',
-    supplierId: readString(row, afasConfig.fields.line.supplier),
+    supplierId: readFirstString(row, getConfiguredReadCandidates(configurableFieldMap, 'QL-SUPPLIER_ID', afasConfig.fields.line.supplier)),
     supplierName: readString(row, afasConfig.fields.line.supplierName),
     purchaseEnabled,
-    baseQty: Math.max(1, readNumber(row, afasConfig.fields.line.baseQty)),
+    baseQty: Math.max(1, readFirstNumber(row, getConfiguredReadCandidates(configurableFieldMap, 'QL-QTY_BASE', afasConfig.fields.line.baseQty, 'Qty'))),
     unit,
-    unitCost: readNumber(row, afasConfig.fields.line.unitCost),
-    purchasePrice: afasConfig.fields.line.purchasePrice ? readNumber(row, afasConfig.fields.line.purchasePrice) : undefined,
-    unitPrice: readNumber(row, afasConfig.fields.line.unitPrice),
+    unitCost: readFirstNumber(row, getConfiguredReadCandidates(configurableFieldMap, 'QL-UNIT_COST_BASE', afasConfig.fields.line.unitCost, 'CostPrice')),
+    purchasePrice:
+      configurableFieldMap?.get('QL-PURCHASE_PRICE') || afasConfig.fields.line.purchasePrice
+        ? readFirstNumber(row, getConfiguredReadCandidates(configurableFieldMap, 'QL-PURCHASE_PRICE', afasConfig.fields.line.purchasePrice))
+        : undefined,
+    unitPrice: readFirstNumber(row, getConfiguredReadCandidates(configurableFieldMap, 'QL-UNIT_PRICE_BASE', afasConfig.fields.line.unitPrice, 'SalesPrice')),
     qtyFormulaMemo,
     costFormulaMemo,
     markupFormulaMemo,

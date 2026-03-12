@@ -128,6 +128,25 @@ function compareQuotationLines(a: { quotationId: string; stageId: string; order:
   if (a.order !== b.order) return a.order - b.order;
   return a.id.localeCompare(b.id, 'nl');
 }
+
+function mergeConfiguredReadbackFallback(
+  line: QuotationLine,
+  savedLine?: QuotationLineMutation,
+  settings?: Settings,
+): QuotationLine {
+  if (!savedLine || !settings) return line;
+  const mapping = settings.quotationLineConfigurableAfasIds ?? {};
+  const next = { ...line };
+
+  if (mapping['QL-SUPPLIER_ID']) next.supplierId = savedLine.supplierId;
+  if (mapping['QL-QTY_BASE']) next.baseQty = savedLine.baseQty;
+  if (mapping['QL-UNIT_COST_BASE']) next.unitCost = savedLine.unitCost;
+  if (mapping['QL-PURCHASE_PRICE']) next.purchasePrice = savedLine.purchasePrice;
+  if (mapping['QL-UNIT_PRICE_BASE']) next.unitPrice = savedLine.unitPrice;
+
+  return next;
+}
+
 type PhaseMarkupMemoPayload = {
   version: number;
   kind: 'phase_markup_line';
@@ -462,6 +481,8 @@ export default function AppPage() {
   const saveInFlightRef = useRef(false);
   const saveSuccessTimeoutRef = useRef<number | null>(null);
   const previousSelectedQuotationIdsRef = useRef<string[]>([]);
+  const pendingSaveAfterAuthRef = useRef(false);
+  const backgroundOrderSyncAttemptRef = useRef('');
   const itemSearchRequestRef = useRef(0);
   const creditorSearchRequestRef = useRef(0);
   const addLineHotkeyRef = useRef<(() => void) | null>(null);
@@ -814,7 +835,13 @@ export default function AppPage() {
       if (!payload || payload.type !== 'afas-oauth-complete') return;
       setWriteAuthBusy(false);
       void fetchAfasWriteAuthStatus()
-        .then(setWriteAuthStatus)
+        .then((status) => {
+          setWriteAuthStatus(status);
+          if (pendingSaveAfterAuthRef.current && status.authenticated) {
+            pendingSaveAfterAuthRef.current = false;
+            void handleSave();
+          }
+        })
         .catch((error) =>
           setWriteAuthStatus({
             ...DEFAULT_WRITE_AUTH_STATUS,
@@ -1181,13 +1208,18 @@ export default function AppPage() {
     );
   }
 
-  async function startAfasOAuthFromApp() {
+  async function startAfasOAuthFromApp(continueSave = false) {
     setWriteAuthBusy(true);
     try {
+      if (!writeAuthStatus.oauthConfigured) {
+        throw new Error(writeAuthStatus.message || 'OAuth backend is nog niet ingericht.');
+      }
+      pendingSaveAfterAuthRef.current = continueSave;
       const popup = window.open(getAfasOAuthStartUrl(), 'afas-oauth-login', 'popup=yes,width=720,height=820');
       if (!popup) throw new Error('Popup geblokkeerd. Sta popups toe voor AFAS-login.');
       popup.focus();
     } catch (error) {
+      pendingSaveAfterAuthRef.current = false;
       setWriteAuthBusy(false);
       setSaveError((error as Error).message);
     }
@@ -1280,11 +1312,108 @@ export default function AppPage() {
     };
   }, [dirtyQuotationIds, quotationLocks, iframeSession?.sessionId]);
 
+  function buildLineMutation(line: DraftQuotationLine, orderById: Map<string, number>): QuotationLineMutation {
+    const computed = lineComputed.get(line.id) ?? calcLine({ ...line, phaseId: line.stageId }, activeLineMarkupConfigs);
+    return {
+      quotationId: line.quotationId,
+      stageId: line.stageId,
+      order: orderById.get(line.id) ?? line.order,
+      lineType: line.lineType,
+      itemCode: line.itemCode,
+      description: line.description,
+      supplierId: line.supplierId,
+      supplierName: line.supplierName,
+      purchaseEnabled: isNonPurchasableLine(line) ? false : (line.purchaseEnabled ?? true),
+      baseQty: line.baseQty,
+      computedQty: computed?.computedQty ?? line.baseQty,
+      unit: line.unit,
+      qtyFormula: line.qtyFormula,
+      qtyFormulaMemo: line.qtyFormulaMemo,
+      costFormula: line.costFormula,
+      costFormulaMemo: line.costFormulaMemo,
+      markupFormulaMemo: serializeMarkupFormulaMemo(line),
+      ...extractLineMarkupFields(line),
+      unitCost: line.unitCost,
+      computedUnitCost: computed?.computedUnitCost ?? line.unitCost,
+      purchasePrice: line.purchasePrice,
+      unitPrice: line.unitPrice,
+      computedUnitPrice: computed?.computedUnitPrice ?? line.unitPrice,
+    };
+  }
+
+  function buildSavePayload(sourceLines: DraftQuotationLine[]): SaveQuotationLinesPayload {
+    const create: QuotationLineMutation[] = [];
+    const update: QuotationLineMutation[] = [];
+    const remove: Array<{ id: string }> = [];
+
+    const ordered = normalizeGroupOrder(sourceLines);
+    const orderById = new Map(ordered.filter((line) => line.draftState !== 'deleted').map((line) => [line.id, line.order]));
+
+    ordered.forEach((line) => {
+      const payload = buildLineMutation(line, orderById);
+      if (line.draftState === 'new') create.push(payload);
+      if (line.draftState === 'updated') update.push({ id: line.id, ...payload });
+      if (line.draftState === 'deleted') remove.push({ id: line.id });
+    });
+
+    return { create, update, delete: remove };
+  }
+
   const activeCalculatorLine = useMemo(() => {
     const lineId = costCalculator?.lineId ?? qtyCalculator?.lineId ?? measurementConfigLineId;
     if (!lineId) return null;
     return draftLines.find((line) => line.id === lineId) ?? null;
   }, [costCalculator?.lineId, qtyCalculator?.lineId, measurementConfigLineId, draftLines]);
+
+  useEffect(() => {
+    if (!prId || loading || saveInFlightRef.current || hasDirtyChanges) return;
+    if (settings.writeAuthMode === 'oauth_user' && !writeAuthStatus.authenticated) return;
+
+    const missingOrderLines = draftLines.filter(
+      (line) =>
+        line.draftState === 'clean' &&
+        !line.orderHasLineNo &&
+        !line.id.startsWith('tmp-'),
+    );
+    if (!missingOrderLines.length) {
+      backgroundOrderSyncAttemptRef.current = '';
+      return;
+    }
+
+    const blockedLine = missingOrderLines.find((line) => !quotationLocks[line.quotationId]?.mine);
+    if (blockedLine) return;
+
+    const signature = `${prId}:${missingOrderLines.map((line) => `${line.id}:${line.order}`).join('|')}`;
+    if (backgroundOrderSyncAttemptRef.current === signature) return;
+    backgroundOrderSyncAttemptRef.current = signature;
+
+    const ordered = normalizeGroupOrder(draftLines);
+    const orderById = new Map(ordered.filter((line) => line.draftState !== 'deleted').map((line) => [line.id, line.order] as const));
+    const updates = missingOrderLines.map((line) => ({
+      id: line.id,
+      ...buildLineMutation(line, orderById),
+    }));
+
+    if (!updates.length) return;
+
+    saveInFlightRef.current = true;
+    void saveQuotationLines(prId, { create: [], update: updates, delete: [] })
+      .then(() => {
+        setDraftLines((prev) =>
+          prev.map((line) =>
+            updates.some((update) => update.id === line.id)
+              ? { ...line, order: orderById.get(line.id) ?? line.order, orderHasLineNo: true }
+              : line,
+          ),
+        );
+      })
+      .catch((error) => {
+        console.error('Automatisch aanvullen van regelvolgorde mislukt.', error);
+      })
+      .finally(() => {
+        saveInFlightRef.current = false;
+      });
+  }, [prId, loading, hasDirtyChanges, draftLines, quotationLocks, settings.writeAuthMode, writeAuthStatus.authenticated, activeLineMarkupConfigs, lineComputed]);
 
   const draggedLine = useMemo(() => {
     if (!draggedLineId) return null;
@@ -1750,6 +1879,11 @@ export default function AppPage() {
   async function handleSave() {
     if (!prId) return;
     if (saveInFlightRef.current) return;
+    if (settings.writeAuthMode === 'oauth_user' && !writeAuthStatus.authenticated) {
+      setSaveError('');
+      await startAfasOAuthFromApp(true);
+      return;
+    }
     if (dirtyQuotationWithoutLock) {
       const owner = dirtyQuotationWithoutLock.lock?.ownerDisplayName ?? 'een andere gebruiker';
       setSaveError(`Opslaan geblokkeerd: voorcalculatie ${dirtyQuotationWithoutLock.quotationId} is vergrendeld door ${owner}.`);
@@ -1764,46 +1898,12 @@ export default function AppPage() {
     setSaving(true);
     setSaveError('');
     try {
-      const create: QuotationLineMutation[] = [];
-      const update: QuotationLineMutation[] = [];
-      const remove: Array<{ id: string }> = [];
-
-      const ordered = normalizeGroupOrder(draftLines);
-      const orderById = new Map(ordered.filter((line) => line.draftState !== 'deleted').map((line) => [line.id, line.order]));
-
-      ordered.forEach((line) => {
-      const computed = lineComputed.get(line.id);
-      const payload = {
-          quotationId: line.quotationId,
-          stageId: line.stageId,
-          order: orderById.get(line.id) ?? line.order,
-          lineType: line.lineType,
-          itemCode: line.itemCode,
-          description: line.description,
-          supplierId: line.supplierId,
-          supplierName: line.supplierName,
-          purchaseEnabled: isNonPurchasableLine(line) ? false : (line.purchaseEnabled ?? true),
-          baseQty: line.baseQty,
-          computedQty: computed?.computedQty ?? line.baseQty,
-          unit: line.unit,
-          qtyFormula: line.qtyFormula,
-          qtyFormulaMemo: line.qtyFormulaMemo,
-          costFormula: line.costFormula,
-          costFormulaMemo: line.costFormulaMemo,
-          markupFormulaMemo: serializeMarkupFormulaMemo(line),
-          ...extractLineMarkupFields(line),
-          unitCost: line.unitCost,
-          computedUnitCost: computed?.computedUnitCost ?? line.unitCost,
-          purchasePrice: line.purchasePrice,
-          unitPrice: line.unitPrice,
-          computedUnitPrice: computed?.computedUnitPrice ?? line.unitPrice,
-        };
-        if (line.draftState === 'new') create.push(payload);
-        if (line.draftState === 'updated') update.push({ id: line.id, ...payload });
-        if (line.draftState === 'deleted') remove.push({ id: line.id });
-      });
+      const payload = buildSavePayload(draftLines);
+      const { create, update, delete: remove } = payload;
 
       const stageById = new Map(stages.map((stage) => [stage.id, stage] as const));
+      const ordered = normalizeGroupOrder(draftLines);
+      const orderById = new Map(ordered.filter((line) => line.draftState !== 'deleted').map((line) => [line.id, line.order] as const));
       const activeRegularLines = ordered.filter((line) => line.draftState !== 'deleted');
       const groupMap = new Map<string, DraftQuotationLine[]>();
       activeRegularLines.forEach((line) => {
@@ -1915,12 +2015,13 @@ export default function AppPage() {
         remove.push({ id: existingLine.id });
       });
 
-      const payload: SaveQuotationLinesPayload = { create, update, delete: remove };
       await saveQuotationLines(prId, payload);
 
       const refreshed = await fetchQuotationLines(prId);
+      const savedUpdatesById = new Map(update.map((line) => [line.id, line] as const));
       const normalizedRefreshed = [...refreshed]
         .map((line, idx) => ({ ...line, order: Number.isFinite(line.order) ? line.order : idx + 1 }))
+        .map((line) => mergeConfiguredReadbackFallback(line, savedUpdatesById.get(line.id), settings))
         .map((line) => ({
           ...normalizeMeasurementLine(line),
           purchaseEnabled: isNonPurchasableLine(line) ? false : (line.purchaseEnabled ?? true),
