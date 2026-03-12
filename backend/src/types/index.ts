@@ -133,6 +133,7 @@ export interface QuotationLine extends LineMarkupFields {
   quotationId: string;
   stageId: string;
   order: number;
+  orderHasLineNo?: boolean;
   lineType?: string;
   itemCode: string;
   description: string;

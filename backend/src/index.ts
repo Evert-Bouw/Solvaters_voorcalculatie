@@ -903,6 +903,10 @@ function resolveAfasQuotationLineOrder(
   return readNumber(row, 'SeqNo');
 }
 
+function hasAfasQuotationLineLineNo(row: Record<string, unknown>) {
+  return readNumber(row, 'LineNo') > 0;
+}
+
 function mapAfasQuotationLine(
   row: Record<string, unknown>,
   configurableFieldMap?: Map<string, string>,
@@ -965,6 +969,7 @@ function mapAfasQuotationLine(
     quotationId,
     stageId,
     order,
+    orderHasLineNo: hasAfasQuotationLineLineNo(row),
     lineType: readString(row, afasConfig.fields.line.lineType) ?? undefined,
     itemCode: readString(row, afasConfig.fields.line.itemCode) ?? '',
     description: readString(row, afasConfig.fields.line.description) ?? '',
@@ -1330,9 +1335,7 @@ function toAfasLineFields(
     ['QL-PURCHASE_ENABLED', line.purchaseEnabled === undefined ? undefined : line.purchaseEnabled],
   ];
   configurableAssignments.forEach(([appFieldId, value]) => {
-    const afasFieldId = appFieldId === 'QL-ORDER'
-      ? (mappingByFieldId.get(appFieldId) || afasConfig.fields.line.order?.trim())
-      : mappingByFieldId.get(appFieldId);
+    const afasFieldId = mappingByFieldId.get(appFieldId);
     if (!afasFieldId || value === undefined || value === null) return;
     const isFormulaMemoField = appFieldId === 'QL-QTY_FORMULA_MEMO' || appFieldId === 'QL-COST_FORMULA_MEMO' || appFieldId === 'QL-MARKUP_FORMULA_MEMO';
     if (value === '' && !isFormulaMemoField) return;
@@ -1990,6 +1993,7 @@ app.get('/api/projects/:projectId/quotation-lines', async (req, res) => {
       [...lines].sort((a, b) => {
         if (a.quotationId !== b.quotationId) return a.quotationId.localeCompare(b.quotationId, 'nl');
         if (a.stageId !== b.stageId) return a.stageId.localeCompare(b.stageId, 'nl');
+        if (Boolean(a.orderHasLineNo) !== Boolean(b.orderHasLineNo)) return a.orderHasLineNo ? -1 : 1;
         if (a.order !== b.order) return a.order - b.order;
         return a.id.localeCompare(b.id, 'nl');
       }),

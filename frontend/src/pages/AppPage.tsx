@@ -111,6 +111,14 @@ const LOCK_HEARTBEAT_MS = 30_000;
 
 type DraftState = 'clean' | 'new' | 'updated' | 'deleted';
 type DraftQuotationLine = QuotationLine & { draftState: DraftState };
+
+function compareQuotationLines(a: { quotationId: string; stageId: string; order: number; id: string; orderHasLineNo?: boolean }, b: { quotationId: string; stageId: string; order: number; id: string; orderHasLineNo?: boolean }) {
+  if (a.quotationId !== b.quotationId) return a.quotationId.localeCompare(b.quotationId, 'nl');
+  if (a.stageId !== b.stageId) return a.stageId.localeCompare(b.stageId, 'nl');
+  if (Boolean(a.orderHasLineNo) !== Boolean(b.orderHasLineNo)) return a.orderHasLineNo ? -1 : 1;
+  if (a.order !== b.order) return a.order - b.order;
+  return a.id.localeCompare(b.id, 'nl');
+}
 type PhaseMarkupMemoPayload = {
   version: number;
   kind: 'phase_markup_line';
@@ -798,12 +806,7 @@ export default function AppPage() {
             .map((line) => normalizeMeasurementLine(line))
             .filter((line) => !parsePhaseMarkupMemo(line.markupFormulaMemo))
             .map((line, idx) => ({ ...line, order: Number.isFinite(line.order) ? line.order : idx + 1 }))
-            .sort((a, b) => {
-              if (a.quotationId !== b.quotationId) return a.quotationId.localeCompare(b.quotationId, 'nl');
-              if (a.stageId !== b.stageId) return a.stageId.localeCompare(b.stageId, 'nl');
-              if (a.order !== b.order) return a.order - b.order;
-              return a.id.localeCompare(b.id, 'nl');
-            }),
+            .sort(compareQuotationLines),
         );
       } catch {
         if (!mounted) return;
@@ -921,12 +924,7 @@ export default function AppPage() {
         setExpandedStageKeys(stageKeys);
 
         const sortedLines = [...visibleLines]
-          .sort((a, b) => {
-            if (a.quotationId !== b.quotationId) return a.quotationId.localeCompare(b.quotationId, 'nl');
-            if (a.stageId !== b.stageId) return a.stageId.localeCompare(b.stageId, 'nl');
-            if (a.order !== b.order) return a.order - b.order;
-            return a.id.localeCompare(b.id, 'nl');
-          });
+          .sort(compareQuotationLines);
         setPersistedPhaseMarkupLinesByKey(persistedPhaseMarkupLines);
         setAggregateMarkupsByGroup(nextAggregateMarkupsByGroup);
         setDraftLines(sortedLines.map((line) => ({ ...line, draftState: 'clean' as DraftState })));
@@ -1864,12 +1862,7 @@ export default function AppPage() {
           ...normalizeMeasurementLine(line),
           purchaseEnabled: isNonPurchasableLine(line) ? false : (line.purchaseEnabled ?? true),
         }))
-        .sort((a, b) => {
-          if (a.quotationId !== b.quotationId) return a.quotationId.localeCompare(b.quotationId, 'nl');
-          if (a.stageId !== b.stageId) return a.stageId.localeCompare(b.stageId, 'nl');
-          if (a.order !== b.order) return a.order - b.order;
-          return a.id.localeCompare(b.id, 'nl');
-        });
+        .sort(compareQuotationLines);
       const nextPersistedPhaseMarkupLinesByKey: Record<string, QuotationLine> = {};
       const nextAggregateMarkupsByGroup: Record<string, Partial<Record<MarkupType, number>>> = {};
       quotations.forEach((quotation) => {
@@ -2099,11 +2092,7 @@ export default function AppPage() {
         });
         const sourceLines = draftLines
           .filter((line) => line.draftState !== 'deleted' && line.quotationId === copyActionModal.sourceQuotationId)
-          .sort((a, b) => {
-            if (a.stageId !== b.stageId) return a.stageId.localeCompare(b.stageId, 'nl');
-            if (a.order !== b.order) return a.order - b.order;
-            return a.id.localeCompare(b.id, 'nl');
-          });
+          .sort(compareQuotationLines);
         setDraftLines((prev) => {
           const orderByStage = new Map<string, number>();
           const clones = sourceLines.map((line) => {

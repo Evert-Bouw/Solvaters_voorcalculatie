@@ -17,6 +17,14 @@ import { applyThemeColors } from '../utils/theme';
 
 const NO_STAGE_ID = 'NO_STAGE';
 
+function compareQuotationLines(a: { quotationId: string; stageId: string; order: number; id: string; orderHasLineNo?: boolean }, b: { quotationId: string; stageId: string; order: number; id: string; orderHasLineNo?: boolean }) {
+  if (a.quotationId !== b.quotationId) return a.quotationId.localeCompare(b.quotationId, 'nl');
+  if (a.stageId !== b.stageId) return a.stageId.localeCompare(b.stageId, 'nl');
+  if (Boolean(a.orderHasLineNo) !== Boolean(b.orderHasLineNo)) return a.orderHasLineNo ? -1 : 1;
+  if (a.order !== b.order) return a.order - b.order;
+  return a.id.localeCompare(b.id, 'nl');
+}
+
 function navLinkClassName(isActive: boolean) {
   return `rounded px-3 py-2 text-xs font-medium ${isActive ? 'bg-brand-600 text-white' : 'bg-slate-200 text-slate-700 hover:bg-slate-300'}`;
 }
@@ -227,12 +235,7 @@ export default function OrderPage() {
             stageId: stageIdSet.has(line.stageId) ? line.stageId : NO_STAGE_ID,
             order: Number.isFinite(line.order) ? line.order : idx + 1,
           }))
-          .sort((a, b) => {
-            if (a.quotationId !== b.quotationId) return a.quotationId.localeCompare(b.quotationId, 'nl');
-            if (a.stageId !== b.stageId) return a.stageId.localeCompare(b.stageId, 'nl');
-            if (a.order !== b.order) return a.order - b.order;
-            return a.id.localeCompare(b.id, 'nl');
-          });
+          .sort(compareQuotationLines);
 
         const hasNoPhaseLines = normalizedLines.some((line) => line.stageId === NO_STAGE_ID);
         setProject(projectData);
