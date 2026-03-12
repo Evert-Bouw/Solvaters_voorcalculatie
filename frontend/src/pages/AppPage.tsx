@@ -6,6 +6,7 @@ import {
   createProjectStage,
   createQuotation,
   exchangeIframeSession,
+  fetchAfasWriteAuthStatus,
   fetchCreditors,
   fetchIframeSessionProfile,
   fetchItems,
@@ -15,6 +16,7 @@ import {
   fetchQuotationLines,
   fetchQuotations,
   fetchSettings,
+  getAfasOAuthStartUrl,
   heartbeatQuotationLock,
   releaseQuotationLock,
   saveSettings,
@@ -25,6 +27,7 @@ import {
 import {
   CostFormulaOperator,
   Creditor,
+  AfasWriteAuthStatus,
   IframeSessionProfile,
   Item,
   QuotationLockInfo,
@@ -108,6 +111,12 @@ const IFRAME_EXCHANGE_SEEN_KEY = 'voorcalc_iframe_exchange_seen';
 const FIXED_TABLE_SCALE = 0.75;
 const NO_STAGE_ID = 'NO_STAGE';
 const LOCK_HEARTBEAT_MS = 30_000;
+const DEFAULT_WRITE_AUTH_STATUS: AfasWriteAuthStatus = {
+  mode: 'classic',
+  oauthConfigured: false,
+  authenticated: false,
+  message: '',
+};
 
 type DraftState = 'clean' | 'new' | 'updated' | 'deleted';
 type DraftQuotationLine = QuotationLine & { draftState: DraftState };
@@ -412,6 +421,8 @@ export default function AppPage() {
   const [hasPendingAggregateMarkupChanges, setHasPendingAggregateMarkupChanges] = useState(false);
   const [iframeSession, setIframeSession] = useState<IframeSessionProfile | null>(null);
   const [iframeContextMode, setIframeContextMode] = useState<IframeContextMode>('none');
+  const [writeAuthStatus, setWriteAuthStatus] = useState<AfasWriteAuthStatus>(DEFAULT_WRITE_AUTH_STATUS);
+  const [writeAuthBusy, setWriteAuthBusy] = useState(false);
   const [quotationLocks, setQuotationLocks] = useState<Record<string, QuotationLockState>>({});
 
   const [isCreateStageModalOpen, setIsCreateStageModalOpen] = useState(false);
@@ -778,6 +789,46 @@ export default function AppPage() {
 
   useEffect(() => {
     let mounted = true;
+    async function refreshWriteAuthStatus() {
+      try {
+        const status = await fetchAfasWriteAuthStatus();
+        if (mounted) setWriteAuthStatus(status);
+      } catch (error) {
+        if (!mounted) return;
+        setWriteAuthStatus({
+          ...DEFAULT_WRITE_AUTH_STATUS,
+          mode: settings.writeAuthMode,
+          message: (error as Error).message,
+        });
+      }
+    }
+    void refreshWriteAuthStatus();
+    return () => {
+      mounted = false;
+    };
+  }, [settings.writeAuthMode, iframeSession?.sessionId]);
+
+  useEffect(() => {
+    function onMessage(event: MessageEvent) {
+      const payload = event.data as { type?: string; ok?: boolean; message?: string } | null;
+      if (!payload || payload.type !== 'afas-oauth-complete') return;
+      setWriteAuthBusy(false);
+      void fetchAfasWriteAuthStatus()
+        .then(setWriteAuthStatus)
+        .catch((error) =>
+          setWriteAuthStatus({
+            ...DEFAULT_WRITE_AUTH_STATUS,
+            mode: settings.writeAuthMode,
+            message: (error as Error).message,
+          }),
+        );
+    }
+    window.addEventListener('message', onMessage);
+    return () => window.removeEventListener('message', onMessage);
+  }, [settings.writeAuthMode]);
+
+  useEffect(() => {
+    let mounted = true;
 
     async function loadLibraryContext() {
       try {
@@ -1128,6 +1179,18 @@ export default function AppPage() {
         </div>
       </div>
     );
+  }
+
+  async function startAfasOAuthFromApp() {
+    setWriteAuthBusy(true);
+    try {
+      const popup = window.open(getAfasOAuthStartUrl(), 'afas-oauth-login', 'popup=yes,width=720,height=820');
+      if (!popup) throw new Error('Popup geblokkeerd. Sta popups toe voor AFAS-login.');
+      popup.focus();
+    } catch (error) {
+      setWriteAuthBusy(false);
+      setSaveError((error as Error).message);
+    }
   }
 
   const hasVisibleNoPhaseLines = useMemo(
@@ -4139,6 +4202,19 @@ export default function AppPage() {
                       <span>Geen iFrame sessieprofiel</span>
                     </>
                   )}
+                </div>
+              ) : null}
+              {project && settings.writeAuthMode === 'oauth_user' && iframeSession && !writeAuthStatus.authenticated ? (
+                <div className="mt-2 flex flex-wrap items-center gap-2 rounded border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] text-amber-900">
+                  <span>{writeAuthStatus.message || 'Voor mutaties namens deze gebruiker is nog een AFAS OAuth-login nodig.'}</span>
+                  <button
+                    type="button"
+                    className="rounded border border-amber-300 bg-white px-2.5 py-1 font-semibold text-amber-900 hover:bg-amber-100 disabled:opacity-50"
+                    onClick={() => void startAfasOAuthFromApp()}
+                    disabled={writeAuthBusy || !writeAuthStatus.oauthConfigured}
+                  >
+                    {writeAuthBusy ? 'Bezig...' : 'Aanmelden via AFAS'}
+                  </button>
                 </div>
               ) : null}
             </div>

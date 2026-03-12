@@ -19,6 +19,7 @@ export type AfasConfig = {
     quotationLines?: string;
     items?: string;
     creditors?: string;
+    users?: string;
   };
   fields: {
     project: ConnectorFieldMap;
@@ -27,6 +28,7 @@ export type AfasConfig = {
     line: ConnectorFieldMap;
     item: ConnectorFieldMap;
     creditor: ConnectorFieldMap;
+    user: ConnectorFieldMap;
   };
 };
 
@@ -37,6 +39,7 @@ const defaultConnectorConfig = {
   quotationLines: 'Solvaters_QuotationLines',
   items: 'Solvaters_Items',
   creditors: 'Solvaters_Creditor',
+  users: 'Solvaters_Users',
 } as const;
 
 const defaultFieldConfig = {
@@ -94,6 +97,12 @@ const defaultFieldConfig = {
   creditor: {
     id: 'CreditorId',
     name: 'CreditorName',
+  },
+  user: {
+    id: 'UserId',
+    personId: 'PersonId',
+    employeeId: 'EmployeeId',
+    name: 'Description',
   },
 } as const;
 
@@ -169,6 +178,7 @@ export function getAfasConfig(): AfasConfig {
       quotationLines: getEnv('AFAS_CONNECTOR_QUOTATION_LINES') ?? defaultConnectorConfig.quotationLines,
       items: getEnv('AFAS_CONNECTOR_ITEMS') ?? defaultConnectorConfig.items,
       creditors: getEnv('AFAS_CONNECTOR_CREDITORS') ?? defaultConnectorConfig.creditors,
+      users: getEnv('AFAS_CONNECTOR_USERS') ?? defaultConnectorConfig.users,
     },
     fields: {
       project: {
@@ -225,6 +235,12 @@ export function getAfasConfig(): AfasConfig {
       creditor: {
         id: getEnv('AFAS_FIELD_CREDITOR_ID') ?? defaultFieldConfig.creditor.id,
         name: getEnv('AFAS_FIELD_CREDITOR_NAME') ?? defaultFieldConfig.creditor.name,
+      },
+      user: {
+        id: getEnv('AFAS_FIELD_USER_ID') ?? defaultFieldConfig.user.id,
+        personId: getEnv('AFAS_FIELD_USER_PERSON_ID') ?? defaultFieldConfig.user.personId,
+        employeeId: getEnv('AFAS_FIELD_USER_EMPLOYEE_ID') ?? defaultFieldConfig.user.employeeId,
+        name: getEnv('AFAS_FIELD_USER_NAME') ?? defaultFieldConfig.user.name,
       },
     },
   };

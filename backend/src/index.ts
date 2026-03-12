@@ -154,10 +154,22 @@ type QuotationLock = {
   expiresAt: string;
 };
 
+type AfasUser = {
+  userId: string;
+  personId?: string;
+  employeeId?: string;
+  description?: string;
+};
+
 const iframeSessions = new Map<string, IframeSessionProfile>();
 const iframeCodeToSessionId = new Map<string, string>();
 const iframeExchangeInFlight = new Map<string, Promise<IframeSessionProfile>>();
 const quotationLocks = new Map<string, QuotationLock>();
+const afasUserCacheTtlMs = 5 * 60 * 1000;
+let afasUsersCache = {
+  expiresAt: 0,
+  byUserId: new Map<string, AfasUser>(),
+};
 const defaultLockTtlSeconds = 180;
 const maxLockTtlSeconds = 600;
 const iframeTokenAllowedHostSuffixes = ['.afasinsite.nl', '.afas.online'];
@@ -547,6 +559,51 @@ function pickIframeSessionProfile(payload: unknown, fallbackSessionId: string): 
   };
 }
 
+function mapAfasUser(row: Record<string, unknown>): AfasUser {
+  return {
+    userId: readString(row, afasConfig.fields.user.id) ?? '',
+    personId: readString(row, afasConfig.fields.user.personId),
+    employeeId: readString(row, afasConfig.fields.user.employeeId),
+    description: readString(row, afasConfig.fields.user.name),
+  };
+}
+
+async function fetchAfasUsersByUserId() {
+  const now = nowMs();
+  if (afasUsersCache.expiresAt > now && afasUsersCache.byUserId.size) return afasUsersCache.byUserId;
+  try {
+    const rows = await fetchConnectorRows(afasConfig, ensureConnector('users'));
+    const byUserId = new Map(
+      rows
+        .map(mapAfasUser)
+        .filter((user) => user.userId)
+        .map((user) => [user.userId, user] as const),
+    );
+    afasUsersCache = {
+      expiresAt: now + afasUserCacheTtlMs,
+      byUserId,
+    };
+    return byUserId;
+  } catch {
+    return afasUsersCache.byUserId;
+  }
+}
+
+async function resolveAfasUserDisplayName(userId?: string) {
+  const normalizedUserId = userId?.trim();
+  if (!normalizedUserId) return undefined;
+  const byUserId = await fetchAfasUsersByUserId();
+  return byUserId.get(normalizedUserId)?.description?.trim() || undefined;
+}
+
+async function enrichIframeSessionProfile(profile: IframeSessionProfile) {
+  const resolvedDisplayName = await resolveAfasUserDisplayName(profile.userId);
+  return {
+    ...profile,
+    displayName: resolvedDisplayName || profile.displayName || profile.employeeId || profile.personCode || profile.userId,
+  };
+}
+
 function lockKey(projectId: string, quotationId: string) {
   return `${projectId}\u0000${quotationId}`;
 }
@@ -609,11 +666,12 @@ async function buildAfasWriteAuthStatus(req: express.Request) {
       message: 'Nog geen AFAS OAuth-sessie gekoppeld aan deze browser. Meld je aan via AFAS om mutaties namens de gebruiker te versturen.',
     };
   }
+  const resolvedDisplayName = await resolveAfasUserDisplayName(session.userId);
   return {
     mode,
     oauthConfigured: true,
     authenticated: true,
-    displayName: session.displayName,
+    displayName: resolvedDisplayName || session.displayName,
     userId: session.userId,
     accessTokenExpiresAt: session.accessTokenExpiresAt,
     message: 'Mutaties lopen via OAuth namens de ingelogde gebruiker.',
@@ -1462,7 +1520,7 @@ app.post('/api/iframe/exchange', async (req, res) => {
         payload = { raw: responseText };
       }
 
-      const profile = pickIframeSessionProfile(payload, sessionid);
+      const profile = await enrichIframeSessionProfile(pickIframeSessionProfile(payload, sessionid));
       iframeSessions.set(profile.sessionId, profile);
       iframeCodeToSessionId.set(code, profile.sessionId);
       return profile;
@@ -1490,11 +1548,13 @@ app.post('/api/iframe/exchange', async (req, res) => {
   }
 });
 
-app.get('/api/iframe/session/:sessionId', (req, res) => {
+app.get('/api/iframe/session/:sessionId', async (req, res) => {
   const sessionId = req.params.sessionId?.trim();
   if (!sessionId) return res.status(400).json({ ok: false, error: 'sessionId ontbreekt.' });
   const session = iframeSessions.get(sessionId);
   if (!session) return res.status(404).json({ ok: false, error: 'Sessie niet gevonden.' });
+  const resolvedDisplayName = await resolveAfasUserDisplayName(session.userId);
+  if (resolvedDisplayName && resolvedDisplayName !== session.displayName) session.displayName = resolvedDisplayName;
   session.lastSeenAt = new Date().toISOString();
   return res.json({
     ok: true,
@@ -1510,7 +1570,7 @@ app.get('/api/iframe/session/:sessionId', (req, res) => {
   });
 });
 
-app.post('/api/locks/claim', (req, res) => {
+app.post('/api/locks/claim', async (req, res) => {
   cleanupExpiredLocks();
   const projectId = typeof req.body?.projectId === 'string' ? req.body.projectId.trim() : '';
   const quotationId = typeof req.body?.quotationId === 'string' ? req.body.quotationId.trim() : '';
@@ -1520,6 +1580,9 @@ app.post('/api/locks/claim', (req, res) => {
   }
   const session = iframeSessions.get(sessionId);
   if (!session) return res.json({ ok: false, reason: 'unknown_session' });
+  const resolvedDisplayName = await resolveAfasUserDisplayName(session.userId);
+  const ownerDisplayName = resolvedDisplayName || session.displayName || session.userId;
+  if (resolvedDisplayName) session.displayName = resolvedDisplayName;
   const key = lockKey(projectId, quotationId);
   const existing = quotationLocks.get(key);
   const now = nowMs();
@@ -1530,7 +1593,7 @@ app.post('/api/locks/claim', (req, res) => {
   const next: QuotationLock = existing && existing.ownerUserId === session.userId
     ? {
       ...existing,
-      ownerDisplayName: session.displayName ?? session.userId,
+      ownerDisplayName,
       ownerSessionId: session.sessionId,
       expiresAt: new Date(now + ttlSeconds * 1000).toISOString(),
     }
@@ -1539,7 +1602,7 @@ app.post('/api/locks/claim', (req, res) => {
       projectId,
       quotationId,
       ownerUserId: session.userId,
-      ownerDisplayName: session.displayName ?? session.userId,
+      ownerDisplayName,
       ownerSessionId: session.sessionId,
       acquiredAt: new Date(now).toISOString(),
       expiresAt: new Date(now + ttlSeconds * 1000).toISOString(),
@@ -1548,7 +1611,7 @@ app.post('/api/locks/claim', (req, res) => {
   return res.json({ ok: true, lock: toLockResponse(next) });
 });
 
-app.post('/api/locks/heartbeat', (req, res) => {
+app.post('/api/locks/heartbeat', async (req, res) => {
   cleanupExpiredLocks();
   const projectId = typeof req.body?.projectId === 'string' ? req.body.projectId.trim() : '';
   const quotationId = typeof req.body?.quotationId === 'string' ? req.body.quotationId.trim() : '';
@@ -1558,6 +1621,9 @@ app.post('/api/locks/heartbeat', (req, res) => {
   }
   const session = iframeSessions.get(sessionId);
   if (!session) return res.json({ ok: false, reason: 'unknown_session' });
+  const resolvedDisplayName = await resolveAfasUserDisplayName(session.userId);
+  const ownerDisplayName = resolvedDisplayName || session.displayName || session.userId;
+  if (resolvedDisplayName) session.displayName = resolvedDisplayName;
   const key = lockKey(projectId, quotationId);
   const existing = quotationLocks.get(key);
   if (!existing) return res.json({ ok: false, reason: 'lock_not_found' });
@@ -1568,7 +1634,7 @@ app.post('/api/locks/heartbeat', (req, res) => {
   const refreshed: QuotationLock = {
     ...existing,
     ownerSessionId: session.sessionId,
-    ownerDisplayName: session.displayName ?? session.userId,
+    ownerDisplayName,
     expiresAt: new Date(nowMs() + ttlSeconds * 1000).toISOString(),
   };
   quotationLocks.set(key, refreshed);
