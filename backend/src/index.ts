@@ -897,7 +897,8 @@ function mapAfasQuotationLine(
   const projectId = readString(row, afasConfig.fields.line.projectId) ?? '';
   const quotationId = readString(row, afasConfig.fields.line.quotationId) ?? '';
   const stageId = readString(row, afasConfig.fields.line.stageId) ?? 'NO_STAGE';
-  const order = readNumber(row, afasConfig.fields.line.order);
+  const configuredOrderFieldId = configurableFieldMap?.get('QL-ORDER');
+  const order = readNumber(row, configuredOrderFieldId) || readNumber(row, afasConfig.fields.line.order);
   const rawLineId = readString(row, afasConfig.fields.line.id);
   if (!rawLineId) {
     throw new Error(
@@ -1132,6 +1133,14 @@ function parseAppLineIdParts(lineId?: string) {
 
 async function fetchExistingAfasLineIdentities(projectId: string): Promise<ExistingAfasLineIndex> {
   const requestedProjectId = normalizeProjectId(projectId);
+  const settings = normalizeSettings(appSettings);
+  const mappings = buildQuotationLineFieldMappings(settings);
+  const configurableFieldMap = new Map(
+    mappings
+      .filter((mapping) => mapping.afasMode === 'configurable' && mapping.afasFieldId?.trim())
+      .map((mapping) => [mapping.appFieldId, mapping.afasFieldId!.trim()] as const),
+  );
+  const configuredOrderFieldId = configurableFieldMap.get('QL-ORDER');
   const rows = await fetchConnectorRows(afasConfig, ensureConnector('quotationLines'), {
     filterFieldId: afasConfig.fields.line.projectId,
     filterValue: requestedProjectId,
@@ -1141,7 +1150,7 @@ async function fetchExistingAfasLineIdentities(projectId: string): Promise<Exist
     if (!isExactProjectIdMatch(rowProjectId, requestedProjectId)) return index;
     const quotationId = readString(row, afasConfig.fields.line.quotationId) ?? '';
     const stageId = readString(row, afasConfig.fields.line.stageId) ?? 'NO_STAGE';
-    const order = readNumber(row, afasConfig.fields.line.order);
+    const order = readNumber(row, configuredOrderFieldId) || readNumber(row, afasConfig.fields.line.order);
     const configuredRawLineId = readString(row, afasConfig.fields.line.id);
     const guLi = readString(row, 'GuLi');
     const seqNo = readString(row, 'SeqNo');
