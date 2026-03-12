@@ -890,6 +890,19 @@ function isProbablyAfasGuid(value?: string) {
   return /^\{?[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\}?$/i.test(value.trim());
 }
 
+function resolveAfasQuotationLineOrder(
+  row: Record<string, unknown>,
+  configuredOrderFieldId?: string,
+) {
+  const configured = readNumber(row, configuredOrderFieldId);
+  if (configured > 0) return configured;
+  const lineNo = readNumber(row, 'LineNo');
+  if (lineNo > 0) return lineNo;
+  const configuredDefault = readNumber(row, afasConfig.fields.line.order);
+  if (configuredDefault > 0) return configuredDefault;
+  return readNumber(row, 'SeqNo');
+}
+
 function mapAfasQuotationLine(
   row: Record<string, unknown>,
   configurableFieldMap?: Map<string, string>,
@@ -898,7 +911,7 @@ function mapAfasQuotationLine(
   const quotationId = readString(row, afasConfig.fields.line.quotationId) ?? '';
   const stageId = readString(row, afasConfig.fields.line.stageId) ?? 'NO_STAGE';
   const configuredOrderFieldId = configurableFieldMap?.get('QL-ORDER');
-  const order = readNumber(row, configuredOrderFieldId) || readNumber(row, afasConfig.fields.line.order);
+  const order = resolveAfasQuotationLineOrder(row, configuredOrderFieldId);
   const rawLineId = readString(row, afasConfig.fields.line.id);
   if (!rawLineId) {
     throw new Error(
@@ -1094,6 +1107,27 @@ async function fetchAfasQuotationLines(projectId: string) {
   }
 }
 
+async function verifyUpdatedLineOrders(projectId: string, updatedLines: QuotationLineMutation[]) {
+  const candidates = updatedLines.filter((line) => line.id?.trim());
+  if (!candidates.length) return;
+  const refreshedLines = await fetchAfasQuotationLines(projectId);
+  const refreshedById = new Map(refreshedLines.map((line) => [line.id, line] as const));
+  const mismatches = candidates
+    .map((line) => {
+      const refreshed = refreshedById.get(line.id!.trim());
+      if (!refreshed) return { id: line.id!.trim(), expected: sanitizeNumber(line.order), actual: undefined };
+      const expected = sanitizeNumber(line.order);
+      if (refreshed.order === expected) return null;
+      return { id: line.id!.trim(), expected, actual: refreshed.order };
+    })
+    .filter((entry): entry is { id: string; expected: number; actual: number | undefined } => Boolean(entry));
+  if (!mismatches.length) return;
+  throw new Error(
+    `AFAS heeft de regelvolgorde niet verwerkt voor ${mismatches.length} regel(s): ` +
+    mismatches.map((entry) => `${entry.id} (verwacht ${entry.expected}, ontvangen ${entry.actual ?? 'geen regel'})`).join('; '),
+  );
+}
+
 async function fetchAfasCreditors() {
   const rows = await fetchConnectorRows(afasConfig, ensureConnector('creditors'));
   return rows.map(mapAfasCreditor).filter((creditor) => creditor.id);
@@ -1150,7 +1184,7 @@ async function fetchExistingAfasLineIdentities(projectId: string): Promise<Exist
     if (!isExactProjectIdMatch(rowProjectId, requestedProjectId)) return index;
     const quotationId = readString(row, afasConfig.fields.line.quotationId) ?? '';
     const stageId = readString(row, afasConfig.fields.line.stageId) ?? 'NO_STAGE';
-    const order = readNumber(row, configuredOrderFieldId) || readNumber(row, afasConfig.fields.line.order);
+    const order = resolveAfasQuotationLineOrder(row, configuredOrderFieldId);
     const configuredRawLineId = readString(row, afasConfig.fields.line.id);
     const guLi = readString(row, 'GuLi');
     const seqNo = readString(row, 'SeqNo');
@@ -2095,6 +2129,8 @@ app.post('/api/projects/:projectId/quotation-lines/save', async (req, res) => {
         await mutateAfasQuotationLine(quotationId, mutation, auth);
       }
     }
+
+    await verifyUpdatedLineOrders(projectId, update);
 
     return res.json({ ok: true });
   } catch (error) {

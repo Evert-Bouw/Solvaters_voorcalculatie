@@ -119,6 +119,7 @@ function scopeLabel(scope: 'line' | 'phase', type: MarkupType) {
 
 export default function SettingsPage() {
   const [settings, setSettings] = useState<Settings>(DEFAULT_SETTINGS);
+  const [savedSettings, setSavedSettings] = useState<Settings>(DEFAULT_SETTINGS);
   const [afasConnection, setAfasConnection] = useState<AfasConnectionConfig>(DEFAULT_AFAS_CONNECTION);
   const [afasForm, setAfasForm] = useState<AfasConnectionInput>(DEFAULT_AFAS_FORM);
   const [saving, setSaving] = useState(false);
@@ -149,9 +150,16 @@ export default function SettingsPage() {
     () => applyColumnOrder(allOrderableColumnKeys, Array.isArray(settings.columnOrder) ? settings.columnOrder : []),
     [allOrderableColumnKeys, settings.columnOrder],
   );
+  const hasUnsavedSettingsChanges = useMemo(
+    () => JSON.stringify(sanitizeSettings(settings)) !== JSON.stringify(sanitizeSettings(savedSettings)),
+    [savedSettings, settings],
+  );
 
   useEffect(() => {
-    void fetchSettings().then((loaded) => setSettings(loaded));
+    void fetchSettings().then((loaded) => {
+      setSettings(loaded);
+      setSavedSettings(loaded);
+    });
     void fetchQuotationLineFieldMappings().then(setQuotationLineFieldMappings).catch(() => setQuotationLineFieldMappings([]));
     void fetchAfasWriteAuthStatus().then(setWriteAuthStatus).catch(() => setWriteAuthStatus(DEFAULT_WRITE_AUTH_STATUS));
     void fetchAfasConnectionConfig().then((loaded) => {
@@ -221,6 +229,7 @@ export default function SettingsPage() {
     try {
       const saved = await saveSettings(sanitizeSettings(settings));
       setSettings(saved);
+      setSavedSettings(saved);
       await refreshWriteAuthStatus();
       const mappings = await fetchQuotationLineFieldMappings();
       setQuotationLineFieldMappings(mappings);
@@ -1087,6 +1096,11 @@ export default function SettingsPage() {
           ) : null}
         </section>
 
+        {hasUnsavedSettingsChanges ? (
+          <div className="mb-3 rounded border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+            Instellingen zijn lokaal gewijzigd maar nog niet opgeslagen. AFAS gebruikt pas na `Opslaan` de nieuwe veldkoppeling.
+          </div>
+        ) : null}
         <button className="rounded bg-brand-600 px-4 py-2 text-sm font-semibold text-white hover:bg-brand-700 disabled:opacity-50" onClick={() => void onSave()} disabled={saving}>
           {saving ? 'Opslaan...' : 'Opslaan'}
         </button>
