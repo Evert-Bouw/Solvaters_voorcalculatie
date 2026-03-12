@@ -4117,10 +4117,10 @@ export default function AppPage() {
           )}
         </div>
       ) : null}
-      <header className="mb-3 flex flex-none flex-wrap items-center justify-between gap-3 rounded-lg bg-white p-4 shadow-sm">
+      <header className="mb-3 flex flex-none flex-wrap items-center justify-between gap-2 rounded-lg bg-white px-4 py-3 shadow-sm">
         <div className="text-sm">
-          {!isProjectLockedFromUrl ? <label className="mb-1 block text-slate-500" htmlFor="project-select">Project</label> : null}
-          <div className="flex flex-wrap items-center gap-3">
+          {!isProjectLockedFromUrl ? <label className="mb-0.5 block text-slate-500" htmlFor="project-select">Project</label> : null}
+          <div className="flex flex-wrap items-center gap-2.5">
             {!isProjectLockedFromUrl ? (
               <select id="project-select" className="w-72 rounded border border-slate-300 bg-white px-1.5 py-0.5 text-xs" value={prId} onChange={(e) => setPrId(e.target.value)}>
                 <option value="">Selecteer project</option>
@@ -4128,28 +4128,31 @@ export default function AppPage() {
               </select>
             ) : null}
             <div className="min-w-0">
-              <h1 className="text-xl font-semibold text-slate-800">{project ? `${project.id} - ${project.name}` : 'Nog geen project geselecteerd'}</h1>
+              <h1 className="text-lg font-semibold text-slate-800">{project ? `${project.id} - ${project.name}` : 'Nog geen project geselecteerd'}</h1>
               {project ? (
-                <div className="mt-0.5 flex flex-wrap items-center gap-2 text-[11px] text-slate-500">
+                <div className="mt-0.5 flex flex-wrap items-center gap-1.5 text-[11px] text-slate-500">
                   <span className={`font-medium ${sessionStatusSummary.modeClassName}`}>{sessionStatusSummary.modeLabel}</span>
                   <span aria-hidden="true">•</span>
                   <span>{sessionStatusSummary.detail}</span>
+                  {iframeSession ? (
+                    <>
+                      <span aria-hidden="true">•</span>
+                      <span>Ingelogd als {iframeSession.userId}</span>
+                    </>
+                  ) : iframeContextMode === 'method2' ? (
+                    <>
+                      <span aria-hidden="true">•</span>
+                      <span>iFrame methode 2: projectcontext</span>
+                    </>
+                  ) : (
+                    <>
+                      <span aria-hidden="true">•</span>
+                      <span>Geen iFrame sessieprofiel</span>
+                    </>
+                  )}
                 </div>
               ) : null}
             </div>
-            {iframeSession ? (
-              <span className="rounded border border-emerald-200 bg-emerald-50 px-2 py-1 text-xs text-emerald-700">
-                Ingelogd als {iframeSession.userId}
-              </span>
-            ) : iframeContextMode === 'method2' ? (
-              <span className="rounded border border-sky-200 bg-sky-50 px-2 py-1 text-xs text-sky-700">
-                iFrame methode 2: projectcontext (geen gebruiker)
-              </span>
-            ) : (
-              <span className="rounded border border-amber-200 bg-amber-50 px-2 py-1 text-xs text-amber-700">
-                Geen iFrame sessieprofiel
-              </span>
-            )}
           </div>
         </div>
         <nav className="flex items-center gap-2">

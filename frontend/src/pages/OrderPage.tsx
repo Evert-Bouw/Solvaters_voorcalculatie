@@ -923,17 +923,17 @@ export default function OrderPage() {
 
   return (
     <div className="flex h-screen flex-col overflow-hidden bg-slate-100 p-3">
-      <header className="mb-3 flex flex-none flex-wrap items-center justify-between gap-3 rounded-lg bg-white p-4 shadow-sm">
+      <header className="mb-3 flex flex-none flex-wrap items-center justify-between gap-2 rounded-lg bg-white px-4 py-3 shadow-sm">
         <div className="text-sm">
-          {!isProjectLockedFromUrl ? <label className="mb-1 block text-slate-500" htmlFor="project-select">Project</label> : null}
-          <div className="flex flex-wrap items-center gap-3">
+          {!isProjectLockedFromUrl ? <label className="mb-0.5 block text-slate-500" htmlFor="project-select">Project</label> : null}
+          <div className="flex flex-wrap items-center gap-2.5">
             {!isProjectLockedFromUrl ? (
               <select id="project-select" className="w-72 rounded border border-slate-300 bg-white px-1.5 py-0.5 text-xs" value={prId} onChange={(e) => setPrId(e.target.value)}>
                 <option value="">Selecteer project</option>
                 {selectableProjects.map((option) => (<option key={option.id} value={option.id}>{option.id} - {option.name}</option>))}
               </select>
             ) : null}
-            <h1 className="text-xl font-semibold text-slate-800">{project ? `${project.id} - ${project.name}` : 'Nog geen project geselecteerd'}</h1>
+            <h1 className="text-lg font-semibold text-slate-800">{project ? `${project.id} - ${project.name}` : 'Nog geen project geselecteerd'}</h1>
           </div>
         </div>
         <nav className="flex items-center gap-2">
