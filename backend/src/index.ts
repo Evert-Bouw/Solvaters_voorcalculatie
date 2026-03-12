@@ -1296,7 +1296,9 @@ function toAfasLineFields(
     ['QL-PURCHASE_ENABLED', line.purchaseEnabled === undefined ? undefined : line.purchaseEnabled],
   ];
   configurableAssignments.forEach(([appFieldId, value]) => {
-    const afasFieldId = mappingByFieldId.get(appFieldId);
+    const afasFieldId = appFieldId === 'QL-ORDER'
+      ? (mappingByFieldId.get(appFieldId) || afasConfig.fields.line.order?.trim())
+      : mappingByFieldId.get(appFieldId);
     if (!afasFieldId || value === undefined || value === null) return;
     const isFormulaMemoField = appFieldId === 'QL-QTY_FORMULA_MEMO' || appFieldId === 'QL-COST_FORMULA_MEMO' || appFieldId === 'QL-MARKUP_FORMULA_MEMO';
     if (value === '' && !isFormulaMemoField) return;
