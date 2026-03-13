@@ -693,9 +693,9 @@ export default function SettingsPage() {
               {afasStatus ? <p className={`mt-3 text-sm ${afasStatus.includes('opgeslagen') ? 'text-emerald-700' : 'text-rose-700'}`}>{afasStatus}</p> : null}
               <div className="mt-3">
                 <div className="mb-3 rounded border border-slate-200 bg-slate-50 p-3">
-                  <h3 className="text-sm font-semibold text-slate-800">Schrijven naar AFAS</h3>
+                  <h3 className="text-sm font-semibold text-slate-800">AFAS authenticatie</h3>
                   <p className="mt-1 text-xs text-slate-600">
-                    Lezen blijft via classic token. Deze instelling bepaalt of alle mutaties app-breed via classic of via OAuth namens de gebruiker lopen.
+                    Deze instelling bepaalt app-breed of AFAS-calls via classic token of via OAuth namens de gebruiker lopen, voor zowel ophalen als terugschrijven.
                   </p>
                   <div className="mt-3 grid gap-3 md:grid-cols-[minmax(0,18rem)_1fr]">
                     <label className="grid gap-1 text-sm">
@@ -756,7 +756,7 @@ export default function SettingsPage() {
                         </div>
                       ) : (
                         <p className="mt-3 text-xs text-slate-500">
-                          Classic: alle mutaties worden in AFAS gelogd op de technische connectorgebruiker.
+                          Classic: ophalen en mutaties lopen via de technische connectorgebruiker.
                         </p>
                       )}
                     </div>
@@ -768,7 +768,7 @@ export default function SettingsPage() {
               </div>
               <div className="mt-3 rounded border border-slate-200 bg-slate-50 p-3 text-sm">
                 <h3 className="text-sm font-semibold text-slate-800">AFAS iFrame context</h3>
-                <p className="mt-1 text-xs text-slate-600">iFrame wordt gebruikt voor gebruikerscontext (wie is ingelogd). Data-calls blijven via classic token.</p>
+                <p className="mt-1 text-xs text-slate-600">iFrame wordt gebruikt voor gebruikerscontext (wie is ingelogd). De gekozen AFAS-methode bepaalt daarna hoe ophalen en schrijven verlopen.</p>
                 <div className="mt-2 grid gap-2 md:grid-cols-2">
                   <div className="rounded border border-slate-200 bg-white px-2 py-1.5">
                     <div className="text-[11px] uppercase tracking-wide text-slate-500">SessionId</div>

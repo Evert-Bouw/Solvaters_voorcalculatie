@@ -630,12 +630,12 @@ function getRequestIframeSessionId(req: express.Request) {
   return bodyValue || '';
 }
 
-function getAfasWriteAuthMode(settings: Settings): AfasWriteAuthMode {
+function getAfasAuthMode(settings: Settings): AfasWriteAuthMode {
   return settings.writeAuthMode === 'oauth_user' ? 'oauth_user' : 'classic';
 }
 
 async function buildAfasWriteAuthStatus(req: express.Request) {
-  const mode = getAfasWriteAuthMode(normalizeSettings(appSettings));
+  const mode = getAfasAuthMode(normalizeSettings(appSettings));
   const oauthConfig = getAfasOAuthConfig();
   if (mode === 'classic') {
     return {
@@ -743,16 +743,16 @@ async function ensureAfasOAuthAccessToken(appSessionId: string) {
   return nextSession;
 }
 
-async function resolveWriteAfasAuth(req: express.Request): Promise<AfasRequestAuth> {
-  const mode = getAfasWriteAuthMode(normalizeSettings(appSettings));
+async function resolveAfasAuth(req: express.Request): Promise<AfasRequestAuth> {
+  const mode = getAfasAuthMode(normalizeSettings(appSettings));
   if (mode === 'classic') return { type: 'classic' };
   const oauthConfig = getAfasOAuthConfig();
   if (!oauthConfig) {
-    throw new Error('Schrijven via OAuth is ingesteld, maar de backend mist AFAS_OAUTH_CLIENT_ID, AFAS_OAUTH_CLIENT_SECRET of AFAS_OAUTH_REDIRECT_URI.');
+    throw new Error('OAuth is ingesteld, maar de backend mist AFAS_OAUTH_CLIENT_ID, AFAS_OAUTH_CLIENT_SECRET of AFAS_OAUTH_REDIRECT_URI.');
   }
   const appSessionId = getRequestAppSessionId(req);
   if (!appSessionId) {
-    throw new Error('Schrijven via OAuth vereist een app-sessie. Laad de app opnieuw en meld je aan via AFAS.');
+    throw new Error('OAuth vereist een app-sessie. Laad de app opnieuw en meld je aan via AFAS.');
   }
   const session = await ensureAfasOAuthAccessToken(appSessionId);
   return {
@@ -1108,19 +1108,19 @@ function mapAfasCreditor(row: Record<string, unknown>): Creditor {
   };
 }
 
-async function fetchAfasProjects() {
+async function fetchAfasProjects(auth: AfasRequestAuth = { type: 'classic' }) {
   ensureProjectFieldMapping();
-  const rows = await fetchConnectorRows(afasConfig, ensureConnector('projects'));
+  const rows = await fetchConnectorRows(afasConfig, ensureConnector('projects'), undefined, auth);
   return rows.map(mapAfasProject).filter((project) => project.id);
 }
 
-async function fetchAfasProject(projectId: string) {
+async function fetchAfasProject(projectId: string, auth: AfasRequestAuth = { type: 'classic' }) {
   const requestedProjectId = normalizeProjectId(projectId);
   ensureProjectFieldMapping();
   const rows = await fetchConnectorRows(afasConfig, ensureConnector('projects'), {
     filterFieldId: afasConfig.fields.project.id,
     filterValue: requestedProjectId,
-  });
+  }, auth);
   const project = rows
     .map(mapAfasProject)
     .find((entry) => isExactProjectIdMatch(entry.id, requestedProjectId));
@@ -1128,29 +1128,29 @@ async function fetchAfasProject(projectId: string) {
   return project;
 }
 
-async function fetchAfasStages(projectId: string) {
+async function fetchAfasStages(projectId: string, auth: AfasRequestAuth = { type: 'classic' }) {
   const requestedProjectId = normalizeProjectId(projectId);
   const rows = await fetchConnectorRows(afasConfig, ensureConnector('stages'), {
     filterFieldId: afasConfig.fields.stage.projectId,
     filterValue: requestedProjectId,
-  });
+  }, auth);
   return rows
     .map(mapAfasStage)
     .filter((stage) => stage.id && isExactProjectIdMatch(stage.projectId, requestedProjectId));
 }
 
-async function fetchAfasQuotations(projectId: string) {
+async function fetchAfasQuotations(projectId: string, auth: AfasRequestAuth = { type: 'classic' }) {
   const requestedProjectId = normalizeProjectId(projectId);
   const rows = await fetchConnectorRows(afasConfig, ensureConnector('quotations'), {
     filterFieldId: afasConfig.fields.quotation.projectId,
     filterValue: requestedProjectId,
-  });
+  }, auth);
   return rows
     .map(mapAfasQuotation)
     .filter((quotation) => quotation.id && isExactProjectIdMatch(quotation.projectId, requestedProjectId));
 }
 
-async function fetchAfasQuotationLines(projectId: string) {
+async function fetchAfasQuotationLines(projectId: string, auth: AfasRequestAuth = { type: 'classic' }) {
   const requestedProjectId = normalizeProjectId(projectId);
   const settings = normalizeSettings(appSettings);
   const mappings = buildQuotationLineFieldMappings(settings);
@@ -1162,12 +1162,12 @@ async function fetchAfasQuotationLines(projectId: string) {
   const rows = await fetchConnectorRows(afasConfig, ensureConnector('quotationLines'), {
     filterFieldId: afasConfig.fields.line.projectId,
     filterValue: requestedProjectId,
-  });
+  }, auth);
   let lines = rows
     .map((row) => mapAfasQuotationLine(row, configurableFieldMap))
     .filter((line) => line.id && isExactProjectIdMatch(line.projectId, requestedProjectId));
   try {
-    const itemRows = await fetchConnectorRows(afasConfig, ensureConnector('items'));
+    const itemRows = await fetchConnectorRows(afasConfig, ensureConnector('items'), undefined, auth);
     lines = enrichLinesWithItemProperties(lines, itemRows.map(mapAfasItem).filter((item) => item.code));
   } catch {
     // Item enrichment is optional.
@@ -1175,7 +1175,7 @@ async function fetchAfasQuotationLines(projectId: string) {
   const supplierIds = [...new Set(lines.map((line) => line.supplierId).filter((value): value is string => Boolean(value?.trim())))];
   if (!supplierIds.length) return lines;
   try {
-    const creditorRows = await fetchConnectorRows(afasConfig, ensureConnector('creditors'));
+    const creditorRows = await fetchConnectorRows(afasConfig, ensureConnector('creditors'), undefined, auth);
     const creditorById = new Map(
       creditorRows
         .map(mapAfasCreditor)
@@ -1191,10 +1191,10 @@ async function fetchAfasQuotationLines(projectId: string) {
   }
 }
 
-async function verifyUpdatedLineOrders(projectId: string, updatedLines: QuotationLineMutation[]) {
+async function verifyUpdatedLineOrders(projectId: string, updatedLines: QuotationLineMutation[], auth: AfasRequestAuth = { type: 'classic' }) {
   const candidates = updatedLines.filter((line) => line.id?.trim());
   if (!candidates.length) return;
-  const refreshedLines = await fetchAfasQuotationLines(projectId);
+  const refreshedLines = await fetchAfasQuotationLines(projectId, auth);
   const refreshedById = new Map(refreshedLines.map((line) => [line.id, line] as const));
   const mismatches = candidates
     .map((line) => {
@@ -1212,8 +1212,8 @@ async function verifyUpdatedLineOrders(projectId: string, updatedLines: Quotatio
   );
 }
 
-async function fetchAfasCreditors() {
-  const rows = await fetchConnectorRows(afasConfig, ensureConnector('creditors'));
+async function fetchAfasCreditors(auth: AfasRequestAuth = { type: 'classic' }) {
+  const rows = await fetchConnectorRows(afasConfig, ensureConnector('creditors'), undefined, auth);
   return rows.map(mapAfasCreditor).filter((creditor) => creditor.id);
 }
 
@@ -1249,7 +1249,7 @@ function parseAppLineIdParts(lineId?: string) {
   };
 }
 
-async function fetchExistingAfasLineIdentities(projectId: string): Promise<ExistingAfasLineIndex> {
+async function fetchExistingAfasLineIdentities(projectId: string, auth: AfasRequestAuth = { type: 'classic' }): Promise<ExistingAfasLineIndex> {
   const requestedProjectId = normalizeProjectId(projectId);
   const settings = normalizeSettings(appSettings);
   const mappings = buildQuotationLineFieldMappings(settings);
@@ -1262,7 +1262,7 @@ async function fetchExistingAfasLineIdentities(projectId: string): Promise<Exist
   const rows = await fetchConnectorRows(afasConfig, ensureConnector('quotationLines'), {
     filterFieldId: afasConfig.fields.line.projectId,
     filterValue: requestedProjectId,
-  });
+  }, auth);
   return rows.reduce<ExistingAfasLineIndex>((index, row) => {
     const rowProjectId = readString(row, afasConfig.fields.line.projectId) ?? '';
     if (!isExactProjectIdMatch(rowProjectId, requestedProjectId)) return index;
@@ -1350,8 +1350,8 @@ function resolveAfasGuLi(lineId: string | undefined, identity?: ExistingAfasLine
   return undefined;
 }
 
-async function fetchItemLineTypesByCode() {
-  const rows = await fetchConnectorRows(afasConfig, ensureConnector('items'));
+async function fetchItemLineTypesByCode(auth: AfasRequestAuth = { type: 'classic' }) {
+  const rows = await fetchConnectorRows(afasConfig, ensureConnector('items'), undefined, auth);
   return new Map(
     rows
       .map((row) => ({
@@ -1915,9 +1915,10 @@ app.get('/api/quotation-line-field-mappings', (_req, res) => {
   res.json(buildQuotationLineFieldMappings(normalizeSettings(appSettings)));
 });
 
-app.get('/api/projects', async (_req, res) => {
+app.get('/api/projects', async (req, res) => {
   try {
-    const projects = await fetchAfasProjects();
+    const auth = await resolveAfasAuth(req);
+    const projects = await fetchAfasProjects(auth);
     return res.json(projects.sort((a, b) => a.id.localeCompare(b.id, 'nl')));
   } catch (error) {
     return res.status(502).send((error as Error).message);
@@ -1926,7 +1927,8 @@ app.get('/api/projects', async (_req, res) => {
 
 app.get('/api/projects/:projectId', async (req, res) => {
   try {
-    return res.json(await fetchAfasProject(req.params.projectId));
+    const auth = await resolveAfasAuth(req);
+    return res.json(await fetchAfasProject(req.params.projectId, auth));
   } catch (error) {
     return res.status(404).send((error as Error).message);
   }
@@ -1938,7 +1940,8 @@ app.put('/api/projects/:projectId', (req, res) => {
 
 app.get('/api/projects/:projectId/stages', async (req, res) => {
   try {
-    const stages = await fetchAfasStages(req.params.projectId);
+    const auth = await resolveAfasAuth(req);
+    const stages = await fetchAfasStages(req.params.projectId, auth);
     return res.json(stages.sort((a, b) => a.order - b.order));
   } catch (error) {
     return res.status(502).send((error as Error).message);
@@ -1948,8 +1951,8 @@ app.get('/api/projects/:projectId/stages', async (req, res) => {
 app.post('/api/projects/:projectId/stages', async (req, res) => {
   const body = (req.body ?? {}) as Partial<ProjectStage>;
   try {
-    const auth = await resolveWriteAfasAuth(req);
-    const existingStages = await fetchAfasStages(req.params.projectId);
+    const auth = await resolveAfasAuth(req);
+    const existingStages = await fetchAfasStages(req.params.projectId, auth);
     const code = body.code?.trim() || `F${String(existingStages.length + 1).padStart(3, '0')}`;
     const name = body.name?.trim() || `Nieuwe fase ${existingStages.length + 1}`;
     const chargeMode = sanitizeStageChargeMode(body.chargeMode);
@@ -1959,7 +1962,7 @@ app.post('/api/projects/:projectId/stages', async (req, res) => {
       name,
       chargeMode,
     }, auth);
-    const refreshedStages = await fetchAfasStages(req.params.projectId);
+    const refreshedStages = await fetchAfasStages(req.params.projectId, auth);
     const createdStage =
       refreshedStages.find((stage) => stage.id === code || stage.code === code) ??
       ({
@@ -1983,14 +1986,14 @@ app.put('/api/projects/:projectId/stages/:stageId', async (req, res) => {
   if (!name) return res.status(400).send('Fasenaam ontbreekt.');
   const chargeMode = sanitizeStageChargeMode(body.chargeMode);
   try {
-    const auth = await resolveWriteAfasAuth(req);
+    const auth = await resolveAfasAuth(req);
     await updateAfasProjectStage(afasConfig, {
       projectId: req.params.projectId,
       stageCode: req.params.stageId,
       name,
       chargeMode,
     }, auth);
-    const refreshedStages = await fetchAfasStages(req.params.projectId);
+    const refreshedStages = await fetchAfasStages(req.params.projectId, auth);
     const updated = refreshedStages.find((stage) => stage.id === req.params.stageId || stage.code === req.params.stageId);
     if (!updated) {
       return res.json({
@@ -2011,7 +2014,8 @@ app.put('/api/projects/:projectId/stages/:stageId', async (req, res) => {
 
 app.get('/api/projects/:projectId/quotations', async (req, res) => {
   try {
-    const quotations = await fetchAfasQuotations(req.params.projectId);
+    const auth = await resolveAfasAuth(req);
+    const quotations = await fetchAfasQuotations(req.params.projectId, auth);
     return res.json(quotations.sort((a, b) => a.order - b.order));
   } catch (error) {
     return res.status(502).send((error as Error).message);
@@ -2021,14 +2025,14 @@ app.get('/api/projects/:projectId/quotations', async (req, res) => {
 app.post('/api/projects/:projectId/quotations', async (req, res) => {
   const body = (req.body ?? {}) as Partial<Quotation>;
   try {
-    const auth = await resolveWriteAfasAuth(req);
-    const existingQuotations = await fetchAfasQuotations(req.params.projectId);
+    const auth = await resolveAfasAuth(req);
+    const existingQuotations = await fetchAfasQuotations(req.params.projectId, auth);
     const name = body.name?.trim() || `Voorcalculatie ${existingQuotations.length + 1}`;
     await createAfasQuotation(afasConfig, {
       projectId: req.params.projectId,
       name,
     }, auth);
-    const refreshedQuotations = await fetchAfasQuotations(req.params.projectId);
+    const refreshedQuotations = await fetchAfasQuotations(req.params.projectId, auth);
     const createdQuotation =
       [...refreshedQuotations]
         .reverse()
@@ -2051,12 +2055,12 @@ app.put('/api/projects/:projectId/quotations/:quotationId', async (req, res) => 
   const name = body.name?.trim();
   if (!name) return res.status(400).send('Voorcalculatienaam ontbreekt.');
   try {
-    const auth = await resolveWriteAfasAuth(req);
+    const auth = await resolveAfasAuth(req);
     await updateAfasQuotation(afasConfig, {
       quotationId: req.params.quotationId,
       name,
     }, auth);
-    const refreshed = await fetchAfasQuotations(req.params.projectId);
+    const refreshed = await fetchAfasQuotations(req.params.projectId, auth);
     const updated = refreshed.find((quotation) => quotation.id === req.params.quotationId || quotation.number === req.params.quotationId);
     if (!updated) {
       return res.json({
@@ -2075,7 +2079,8 @@ app.put('/api/projects/:projectId/quotations/:quotationId', async (req, res) => 
 
 app.get('/api/projects/:projectId/quotation-lines', async (req, res) => {
   try {
-    const lines = await fetchAfasQuotationLines(req.params.projectId);
+    const auth = await resolveAfasAuth(req);
+    const lines = await fetchAfasQuotationLines(req.params.projectId, auth);
     return res.json(
       [...lines].sort((a, b) => {
         if (a.quotationId !== b.quotationId) return a.quotationId.localeCompare(b.quotationId, 'nl');
@@ -2101,7 +2106,7 @@ app.post('/api/projects/:projectId/quotation-lines/save', async (req, res) => {
   if (!create.length && !update.length && !remove.length) return res.json({ ok: true });
 
   try {
-    const auth = await resolveWriteAfasAuth(req);
+    const auth = await resolveAfasAuth(req);
     const settings = normalizeSettings(appSettings);
     const mappings = buildQuotationLineFieldMappings(settings);
     const mappingByFieldId = new Map(
@@ -2137,8 +2142,8 @@ app.post('/api/projects/:projectId/quotation-lines/save', async (req, res) => {
     if (hasMarkupFormulaMemoData && !mappingByFieldId.get('QL-MARKUP_FORMULA_MEMO')) {
       throw new Error('Opslagformule memo aanwezig, maar AFAS veldkoppeling voor QL-MARKUP_FORMULA_MEMO ontbreekt. Vul deze eerst in bij Regelveld koppeling AFAS.');
     }
-    const lineTypesByCode = await fetchItemLineTypesByCode();
-    const existingLines = await fetchExistingAfasLineIdentities(projectId);
+    const lineTypesByCode = await fetchItemLineTypesByCode(auth);
+    const existingLines = await fetchExistingAfasLineIdentities(projectId, auth);
 
     const createGroups = new Map<string, Array<{ action: QuotationLineMutationAction; fields: Record<string, unknown> }>>();
     create.forEach((line) => {
@@ -2221,7 +2226,7 @@ app.post('/api/projects/:projectId/quotation-lines/save', async (req, res) => {
       }
     }
 
-    await verifyUpdatedLineOrders(projectId, update);
+    await verifyUpdatedLineOrders(projectId, update, auth);
 
     return res.json({ ok: true });
   } catch (error) {
@@ -2232,7 +2237,8 @@ app.post('/api/projects/:projectId/quotation-lines/save', async (req, res) => {
 app.get('/api/items', async (req, res) => {
   const query = typeof req.query.query === 'string' ? req.query.query.trim().toLowerCase() : '';
   try {
-    const rows = await fetchConnectorRows(afasConfig, ensureConnector('items'));
+    const auth = await resolveAfasAuth(req);
+    const rows = await fetchConnectorRows(afasConfig, ensureConnector('items'), undefined, auth);
     const items = rows
       .map(mapAfasItem)
       .filter((item) => !query || item.code.toLowerCase().includes(query) || item.description.toLowerCase().includes(query));
@@ -2245,7 +2251,8 @@ app.get('/api/items', async (req, res) => {
 app.get('/api/creditors', async (req, res) => {
   const query = typeof req.query.query === 'string' ? req.query.query.trim().toLowerCase() : '';
   try {
-    const creditors = await fetchAfasCreditors();
+    const auth = await resolveAfasAuth(req);
+    const creditors = await fetchAfasCreditors(auth);
     const filtered = creditors
       .filter((creditor) => creditor.id && creditor.name)
       .filter((creditor) => !query || creditor.id.toLowerCase().includes(query) || creditor.name.toLowerCase().includes(query));

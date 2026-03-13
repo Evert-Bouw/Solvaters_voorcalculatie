@@ -493,6 +493,7 @@ export async function fetchConnectorRows(
   config: AfasConfig,
   connector: string,
   options?: { filterFieldId?: string; filterValue?: string },
+  auth: AfasRequestAuth = { type: 'classic' },
 ) {
   const params = new URLSearchParams();
   params.set('skip', '-1');
@@ -502,7 +503,7 @@ export async function fetchConnectorRows(
     params.set('filtervalues', options.filterValue);
   }
   const query = params.toString();
-  const payload = await callAfas(config, `/connectors/${encodeURIComponent(connector)}${query ? `?${query}` : ''}`);
+  const payload = await callAfas(config, `/connectors/${encodeURIComponent(connector)}${query ? `?${query}` : ''}`, undefined, auth);
   return extractRows(payload);
 }
 
