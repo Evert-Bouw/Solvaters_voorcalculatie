@@ -201,21 +201,40 @@ async function toggleFullscreen() {
   }
 }
 
-function getProjectIdFromUrlContext() {
-  if (typeof window === 'undefined') return '';
-  const params = new URLSearchParams(window.location.search);
+function findProjectIdInSearchParams(params: URLSearchParams) {
   const direct =
     params.get('PrId')?.trim() ??
     params.get('prId')?.trim() ??
     params.get('prid')?.trim() ??
+    params.get('projectid')?.trim() ??
     '';
   if (direct) return direct;
   for (const [key, value] of params.entries()) {
-    if (key.toLowerCase() !== 'prid') continue;
+    const normalizedKey = key.toLowerCase();
+    if (normalizedKey !== 'prid' && normalizedKey !== 'projectid') continue;
     const trimmed = value.trim();
     if (trimmed) return trimmed;
   }
   return '';
+}
+
+function getProjectIdFromUrlContext() {
+  if (typeof window === 'undefined') return '';
+  const params = new URLSearchParams(window.location.search);
+  const direct = findProjectIdInSearchParams(params);
+  if (direct) return direct;
+
+  const dataUrl = params.get('dataurl')?.trim() ?? '';
+  if (!dataUrl) return '';
+  try {
+    const decoded = decodeURIComponent(dataUrl);
+    const nestedUrl = new URL(decoded, window.location.origin);
+    return findProjectIdInSearchParams(nestedUrl.searchParams);
+  } catch {
+    const queryIndex = dataUrl.indexOf('?');
+    if (queryIndex < 0) return '';
+    return findProjectIdInSearchParams(new URLSearchParams(dataUrl.slice(queryIndex + 1)));
+  }
 }
 
 function buildPhaseMarkupLineKey(quotationId: string, stageId: string, markupType: MarkupType) {
