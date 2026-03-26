@@ -1,0 +1,17 @@
+name: Deploy Infra
+
+on:
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  deploy:
+    uses: Evert-Bouw/Solvaters_app_basis/.github/workflows/core-deploy-infra.yml@main
+    with:
+      params_file: infra/app/parameters.prod.json
+      template_file: infra/core/main.bicep
+      azure_location: westeurope
+    secrets: inherit

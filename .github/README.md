@@ -2,15 +2,21 @@
 
 De primaire setuphandleiding staat in [GITHUB_SETUP_SOLVATERS.md](/c:/Users/EvertBouwSolvatersBV/Downloads/Solvaters_voorcalculatie/GITHUB_SETUP_SOLVATERS.md).
 
-Deze map bevat alleen de technische workflow:
+Deze map volgt nu dezelfde opzet als de basisrepo:
 
-- [.github/workflows/deploy.yml](/c:/Users/EvertBouwSolvatersBV/Downloads/Solvaters_voorcalculatie/.github/workflows/deploy.yml)
+- gedeelde `core` workflows voor build/deploy
+- dunne app-wrappers voor infra, backend en frontend
 
-De workflow:
+Belangrijkste workflows:
 
-- logt in op Azure via OIDC
-- rolt infra uit via Bicep
-- deployt backend en frontend
+- [.github/workflows/build-manual.yml](/c:/Users/EvertBouwSolvatersBV/Downloads/Solvaters_voorcalculatie/.github/workflows/build-manual.yml)
+- [.github/workflows/core-change-notice.yml](/c:/Users/EvertBouwSolvatersBV/Downloads/Solvaters_voorcalculatie/.github/workflows/core-change-notice.yml)
+- [.github/workflows/core-deploy-infra.yml](/c:/Users/EvertBouwSolvatersBV/Downloads/Solvaters_voorcalculatie/.github/workflows/core-deploy-infra.yml)
+- [.github/workflows/core-deploy-backend.yml](/c:/Users/EvertBouwSolvatersBV/Downloads/Solvaters_voorcalculatie/.github/workflows/core-deploy-backend.yml)
+- [.github/workflows/core-deploy-frontend.yml](/c:/Users/EvertBouwSolvatersBV/Downloads/Solvaters_voorcalculatie/.github/workflows/core-deploy-frontend.yml)
+- [.github/workflows/deploy-infra.yml](/c:/Users/EvertBouwSolvatersBV/Downloads/Solvaters_voorcalculatie/.github/workflows/deploy-infra.yml)
+- [.github/workflows/deploy-backend.yml](/c:/Users/EvertBouwSolvatersBV/Downloads/Solvaters_voorcalculatie/.github/workflows/deploy-backend.yml)
+- [.github/workflows/deploy-frontend.yml](/c:/Users/EvertBouwSolvatersBV/Downloads/Solvaters_voorcalculatie/.github/workflows/deploy-frontend.yml)
 
 Minimale rechten voor de GitHub deployment identity:
 

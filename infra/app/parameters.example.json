@@ -1,0 +1,39 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentParameters.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "resourceGroupName": {
+      "value": "<RESOURCE_GROUP_NAME>"
+    },
+    "keyVaultName": {
+      "value": "<KEY_VAULT_NAME>"
+    },
+    "storageAccountName": {
+      "value": "<STORAGE_ACCOUNT_NAME>"
+    },
+    "afasSecretAppName": {
+      "value": "<AFAS_SECRET_APP_NAME>"
+    },
+    "afasOauthScope": {
+      "value": ""
+    },
+    "frontendApiBaseUrl": {
+      "value": ""
+    },
+    "frontendBuildVariables": {
+      "value": "{}"
+    },
+    "debugSessionFlow": {
+      "value": "false"
+    },
+    "additionalCorsOrigins": {
+      "value": ""
+    },
+    "azureTableStorageIframeTable": {
+      "value": ""
+    },
+    "azureTableStorageAppSettingsTable": {
+      "value": ""
+    }
+  }
+}

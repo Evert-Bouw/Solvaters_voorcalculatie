@@ -1,0 +1,89 @@
+name: Core Deploy Backend
+
+on:
+  workflow_call:
+    inputs:
+      params_file:
+        required: false
+        type: string
+        default: infra/app/parameters.prod.json
+      backend_dir:
+        required: false
+        type: string
+        default: backend
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: ${{ inputs.backend_dir }}/package-lock.json
+
+      - name: Resolve Backend App Name
+        id: resolve
+        shell: bash
+        env:
+          PARAMS_FILE: ${{ inputs.params_file }}
+        run: |
+          python - <<'PY' >> "$GITHUB_OUTPUT"
+          import json
+          import os
+          from pathlib import Path
+
+          params = json.loads(Path(os.environ["PARAMS_FILE"]).read_text(encoding="utf-8"))["parameters"]
+          app_name = params["afasSecretAppName"]["value"].strip()
+          web_app = params.get("webAppName", {}).get("value", "").strip() or f"{app_name}-api"
+          print(f"web_app_name={web_app}")
+          PY
+
+      - name: Install Backend Dependencies
+        run: npm ci
+        working-directory: ${{ inputs.backend_dir }}
+
+      - name: Build Backend
+        run: npm run build
+        working-directory: ${{ inputs.backend_dir }}
+
+      - name: Prune Dev Dependencies
+        run: npm prune --omit=dev
+        working-directory: ${{ inputs.backend_dir }}
+
+      - name: Prepare Backend Package
+        shell: bash
+        run: |
+          rm -rf "$RUNNER_TEMP/backend-package"
+          mkdir -p "$RUNNER_TEMP/backend-package"
+          cp -R "${{ inputs.backend_dir }}/dist" "$RUNNER_TEMP/backend-package/dist"
+          cp -R "${{ inputs.backend_dir }}/node_modules" "$RUNNER_TEMP/backend-package/node_modules"
+          cp "${{ inputs.backend_dir }}/package.json" "$RUNNER_TEMP/backend-package/package.json"
+          cp "${{ inputs.backend_dir }}/package-lock.json" "$RUNNER_TEMP/backend-package/package-lock.json"
+
+      - name: Azure Login
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Deploy Backend Package
+        uses: azure/webapps-deploy@v3
+        with:
+          app-name: ${{ steps.resolve.outputs.web_app_name }}
+          package: ${{ runner.temp }}/backend-package
+
+      - name: Azure Logout
+        if: always()
+        shell: bash
+        run: az logout

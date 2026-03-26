@@ -1,0 +1,148 @@
+name: Core Deploy Infra
+
+on:
+  workflow_call:
+    inputs:
+      params_file:
+        required: false
+        type: string
+        default: infra/app/parameters.prod.json
+      template_file:
+        required: false
+        type: string
+        default: infra/core/main.bicep
+      azure_location:
+        required: false
+        type: string
+        default: westeurope
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validate Required Secrets
+        shell: bash
+        run: |
+          if [ -z "${{ secrets.AZURE_CLIENT_ID }}" ]; then echo "AZURE_CLIENT_ID ontbreekt"; exit 1; fi
+          if [ -z "${{ secrets.AZURE_TENANT_ID }}" ]; then echo "AZURE_TENANT_ID ontbreekt"; exit 1; fi
+          if [ -z "${{ secrets.AZURE_SUBSCRIPTION_ID }}" ]; then echo "AZURE_SUBSCRIPTION_ID ontbreekt"; exit 1; fi
+
+      - name: Resolve Infra Values
+        id: resolve
+        shell: bash
+        env:
+          PARAMS_FILE: ${{ inputs.params_file }}
+        run: |
+          python - <<'PY' >> "$GITHUB_OUTPUT"
+          import json
+          import os
+          from pathlib import Path
+
+          params = json.loads(Path(os.environ["PARAMS_FILE"]).read_text(encoding="utf-8"))["parameters"]
+          resource_group_name = params["resourceGroupName"]["value"].strip()
+          app_name = params["afasSecretAppName"]["value"].strip()
+          key_vault_name = params["keyVaultName"]["value"].strip()
+          storage_account_name = params["storageAccountName"]["value"].strip()
+
+          print(f"resource_group_name={resource_group_name}")
+          print(f"app_name={app_name}")
+          print(f"key_vault_name={key_vault_name}")
+          print(f"storage_account_name={storage_account_name}")
+          PY
+
+      - name: Azure Login
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Ensure Resource Group
+        shell: bash
+        run: |
+          az group create \
+            --name "${{ steps.resolve.outputs.resource_group_name }}" \
+            --location "${{ inputs.azure_location }}"
+
+      - name: Deploy Bicep Template
+        shell: bash
+        run: |
+          az deployment group create \
+            --resource-group "${{ steps.resolve.outputs.resource_group_name }}" \
+            --template-file "${{ inputs.template_file }}" \
+            --parameters @"${{ inputs.params_file }}"
+
+      - name: Bootstrap Key Vault Secrets
+        shell: bash
+        run: |
+          KEY_VAULT_NAME="${{ steps.resolve.outputs.key_vault_name }}"
+          STORAGE_ACCOUNT_NAME="${{ steps.resolve.outputs.storage_account_name }}"
+          RESOURCE_GROUP_NAME="${{ steps.resolve.outputs.resource_group_name }}"
+          APP_NAME="${{ steps.resolve.outputs.app_name }}"
+
+          SESSION_SECRET_NAME="afas-${APP_NAME}-session-secret"
+          TOKEN_SECRET_NAME="afas-${APP_NAME}-token"
+          OAUTH_CLIENT_ID_SECRET_NAME="afas-${APP_NAME}-oauth-client-id"
+          OAUTH_CLIENT_SECRET_SECRET_NAME="afas-${APP_NAME}-oauth-client-secret"
+          BOOTSTRAP_ADMIN_USER_IDS_SECRET_NAME="afas-${APP_NAME}-bootstrap-admin-user-ids"
+          PUBLICKEY_SECRETS_SECRET_NAME="afas-${APP_NAME}-publickey-secrets"
+          ENCRYPTION_KEY_SECRET_NAME="afas-${APP_NAME}-encryption-key"
+          STORAGE_CONNECTION_SECRET_NAME="afas-${APP_NAME}-azure-table-storage-connection-string"
+          BOOTSTRAP_ADMIN_USER_IDS_PLACEHOLDER='93567.EBO'
+          PUBLICKEY_SECRETS_PLACEHOLDER='{"replace-public-key":"replace-shared-secret"}'
+
+          ensure_placeholder () {
+            local secret_name="$1"
+            if ! az keyvault secret show --vault-name "$KEY_VAULT_NAME" --name "$secret_name" >/dev/null 2>&1; then
+              az keyvault secret set \
+                --vault-name "$KEY_VAULT_NAME" \
+                --name "$secret_name" \
+                --value "__SET_REAL_VALUE__" >/dev/null
+            fi
+          }
+
+          ensure_placeholder "$SESSION_SECRET_NAME"
+          ensure_placeholder "$TOKEN_SECRET_NAME"
+          ensure_placeholder "$OAUTH_CLIENT_ID_SECRET_NAME"
+          ensure_placeholder "$OAUTH_CLIENT_SECRET_SECRET_NAME"
+          ensure_placeholder "$ENCRYPTION_KEY_SECRET_NAME"
+
+          if ! az keyvault secret show --vault-name "$KEY_VAULT_NAME" --name "$BOOTSTRAP_ADMIN_USER_IDS_SECRET_NAME" >/dev/null 2>&1; then
+            az keyvault secret set \
+              --vault-name "$KEY_VAULT_NAME" \
+              --name "$BOOTSTRAP_ADMIN_USER_IDS_SECRET_NAME" \
+              --value "$BOOTSTRAP_ADMIN_USER_IDS_PLACEHOLDER" >/dev/null
+          fi
+
+          if ! az keyvault secret show --vault-name "$KEY_VAULT_NAME" --name "$PUBLICKEY_SECRETS_SECRET_NAME" >/dev/null 2>&1; then
+            az keyvault secret set \
+              --vault-name "$KEY_VAULT_NAME" \
+              --name "$PUBLICKEY_SECRETS_SECRET_NAME" \
+              --value "$PUBLICKEY_SECRETS_PLACEHOLDER" >/dev/null
+          fi
+
+          STORAGE_KEY="$(az storage account keys list \
+            --resource-group "$RESOURCE_GROUP_NAME" \
+            --account-name "$STORAGE_ACCOUNT_NAME" \
+            --query '[0].value' \
+            --output tsv)"
+
+          STORAGE_CONNECTION_STRING="DefaultEndpointsProtocol=https;AccountName=${STORAGE_ACCOUNT_NAME};AccountKey=${STORAGE_KEY};EndpointSuffix=core.windows.net"
+
+          az keyvault secret set \
+            --vault-name "$KEY_VAULT_NAME" \
+            --name "$STORAGE_CONNECTION_SECRET_NAME" \
+            --value "$STORAGE_CONNECTION_STRING" >/dev/null
+
+      - name: Azure Logout
+        if: always()
+        shell: bash
+        run: az logout

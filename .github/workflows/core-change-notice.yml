@@ -1,0 +1,58 @@
+name: Core Change Notice
+
+on:
+  pull_request:
+  push:
+    branches-ignore:
+      - main
+  workflow_dispatch:
+
+jobs:
+  detect-core-changes:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Detect core changes
+        shell: bash
+        run: |
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            BASE_SHA="${{ github.event.pull_request.base.sha }}"
+            HEAD_SHA="${{ github.event.pull_request.head.sha }}"
+          elif [[ "${{ github.event_name }}" == "push" ]]; then
+            BASE_SHA="${{ github.event.before }}"
+            HEAD_SHA="${{ github.sha }}"
+          else
+            BASE_SHA="$(git rev-parse HEAD~1)"
+            HEAD_SHA="$(git rev-parse HEAD)"
+          fi
+
+          CHANGED_FILES="$(git diff --name-only "$BASE_SHA" "$HEAD_SHA" -- \
+            backend/src/core \
+            frontend/src/core \
+            infra/core \
+            .github/workflows/core-deploy-backend.yml \
+            .github/workflows/core-deploy-frontend.yml \
+            .github/workflows/core-deploy-infra.yml || true)"
+
+          if [[ -n "$CHANGED_FILES" ]]; then
+            echo "::warning::Deze wijziging raakt core-bestanden of core-deployworkflowbestanden. Controleer expliciet of dit bewust en generiek bedoeld is."
+            {
+              echo "## Core change notice"
+              echo
+              echo "Deze wijziging raakt core-gerelateerde bestanden. Controleer expliciet of dit bewust en generiek bedoeld is."
+              echo
+              echo "Gewijzigde bestanden:"
+              echo "$CHANGED_FILES" | sed 's/^/- /'
+            } >> "$GITHUB_STEP_SUMMARY"
+          else
+            {
+              echo "## Core change notice"
+              echo
+              echo "Geen core-gerelateerde bestanden gewijzigd."
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi

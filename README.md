@@ -132,7 +132,7 @@ Belangrijke backend-variabelen:
 
 ## GitHub Deploy
 
-De repo is ingericht voor deployment via GitHub Actions met Azure OIDC, Bicep en een bestaande `Resource Group`, `Storage Account` en `Key Vault`.
+De repo is ingericht voor deployment via GitHub Actions met Azure OIDC, Bicep en de nieuwe `core` + `app` infra-opzet.
 
 Gebruik voor de volledige setup en de exacte Solvaters-waarden:
 
@@ -140,14 +140,16 @@ Gebruik voor de volledige setup en de exacte Solvaters-waarden:
 
 Technische bronnen:
 
-- workflow: [.github/workflows/deploy.yml](/c:/Users/EvertBouwSolvatersBV/Downloads/Solvaters_voorcalculatie/.github/workflows/deploy.yml)
-- infra: [infra/main.bicep](/c:/Users/EvertBouwSolvatersBV/Downloads/Solvaters_voorcalculatie/infra/main.bicep)
+- deploy infra: [.github/workflows/deploy-infra.yml](/c:/Users/EvertBouwSolvatersBV/Downloads/Solvaters_voorcalculatie/.github/workflows/deploy-infra.yml)
+- deploy backend: [.github/workflows/deploy-backend.yml](/c:/Users/EvertBouwSolvatersBV/Downloads/Solvaters_voorcalculatie/.github/workflows/deploy-backend.yml)
+- deploy frontend: [.github/workflows/deploy-frontend.yml](/c:/Users/EvertBouwSolvatersBV/Downloads/Solvaters_voorcalculatie/.github/workflows/deploy-frontend.yml)
+- infra core: [infra/core/main.bicep](/c:/Users/EvertBouwSolvatersBV/Downloads/Solvaters_voorcalculatie/infra/core/main.bicep)
 - GitHub bootstrapnotities: [.github/README.md](/c:/Users/EvertBouwSolvatersBV/Downloads/Solvaters_voorcalculatie/.github/README.md)
 - infra-notities: [infra/README.md](/c:/Users/EvertBouwSolvatersBV/Downloads/Solvaters_voorcalculatie/infra/README.md)
 
 Samenvatting:
 
-- de workflow rolt `App Service Plan`, `Web App` en `Static Web App` uit of werkt ze bij
+- `Deploy Infra` rolt `App Service Plan`, `Web App`, `Static Web App`, `Key Vault` en `Storage Account` uit of werkt ze bij
 - de publieke `Static Web App`-url wordt door Azure bepaald en hoeft niet op de resourcenaam te lijken
 - de frontend wordt in GitHub Actions gebouwd en daarna als `frontend/dist` naar `Static Web Apps` geüpload
 - de Web App krijgt `AZURE_KEY_VAULT_NAME` en `AFAS_SECRET_APP_NAME` als app settings en leest/schrijft daarna zelf Key Vault secrets via managed identity

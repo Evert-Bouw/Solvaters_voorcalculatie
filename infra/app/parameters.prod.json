@@ -1,0 +1,36 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentParameters.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "resourceGroupName": {
+      "value": "voorc-solv-rg"
+    },
+    "keyVaultName": {
+      "value": "voorc-solv-kv"
+    },
+    "storageAccountName": {
+      "value": "voorcsolvopslag"
+    },
+    "afasSecretAppName": {
+      "value": "voorcalculatie-solvaters"
+    },
+    "frontendApiBaseUrl": {
+      "value": "https://solvaters-voorcalculatie-api.azurewebsites.net"
+    },
+    "frontendBuildVariables": {
+      "value": "{\"VITE_APP_DISPLAY_NAME\":\"Solvaters Voorcalculatie\"}"
+    },
+    "debugSessionFlow": {
+      "value": "false"
+    },
+    "additionalCorsOrigins": {
+      "value": ""
+    },
+    "afasOauthRedirectUri": {
+      "value": "https://solvaters-voorcalculatie-api.azurewebsites.net/api/afas/oauth/callback"
+    },
+    "allowedFrameAncestors": {
+      "value": "https://*.afasinsite.nl,https://*.insitetest.afas.online,https://*.insiteaccept.afas.online,https://*.outsitetijdelijk.afas.online,https://*.outsitetest.afas.online,https://*.outsiteaccept.afas.online,https://*.solvatersapps.nl"
+    }
+  }
+}

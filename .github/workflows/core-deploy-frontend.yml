@@ -1,0 +1,109 @@
+name: Core Deploy Frontend
+
+on:
+  workflow_call:
+    inputs:
+      params_file:
+        required: false
+        type: string
+        default: infra/app/parameters.prod.json
+      frontend_dir:
+        required: false
+        type: string
+        default: frontend
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: ${{ inputs.frontend_dir }}/package-lock.json
+
+      - name: Resolve Frontend Deployment Values
+        id: resolve
+        shell: bash
+        env:
+          PARAMS_FILE: ${{ inputs.params_file }}
+        run: |
+          python - <<'PY' >> "$GITHUB_OUTPUT"
+          import json
+          import os
+          from pathlib import Path
+
+          params = json.loads(Path(os.environ["PARAMS_FILE"]).read_text(encoding="utf-8"))["parameters"]
+          app_name = params["afasSecretAppName"]["value"].strip()
+          web_app = params.get("webAppName", {}).get("value", "").strip() or f"{app_name}-api"
+          configured_api_base_url = params.get("frontendApiBaseUrl", {}).get("value", "").strip()
+          api_base_url = configured_api_base_url or f"https://{web_app}.azurewebsites.net"
+          allowed_frame_ancestors = params.get("allowedFrameAncestors", {}).get("value", "").strip()
+
+          build_vars_raw = params.get("frontendBuildVariables", {}).get("value", "").strip() or "{}"
+          try:
+              build_vars = json.loads(build_vars_raw)
+          except json.JSONDecodeError as exc:
+              raise SystemExit(f"frontendBuildVariables bevat geen geldige JSON: {exc}")
+          if not isinstance(build_vars, dict):
+              raise SystemExit("frontendBuildVariables moet een JSON object zijn.")
+
+          build_vars.setdefault("VITE_API_BASE_URL", api_base_url)
+
+          with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as env_file:
+              for key, value in build_vars.items():
+                  if not isinstance(key, str) or not key.strip():
+                      raise SystemExit("frontendBuildVariables bevat een ongeldige sleutel.")
+                  env_file.write(f"{key.strip()}={'' if value is None else str(value)}\n")
+
+          print(f"allowed_frame_ancestors={allowed_frame_ancestors}")
+          PY
+
+      - name: Install Frontend Dependencies
+        run: npm ci
+        working-directory: ${{ inputs.frontend_dir }}
+
+      - name: Build Frontend
+        run: npm run build
+        working-directory: ${{ inputs.frontend_dir }}
+
+      - name: Apply Static Web App Security Headers
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          config_path = Path("${{ inputs.frontend_dir }}/dist/staticwebapp.config.json")
+          config = json.loads(config_path.read_text(encoding="utf-8"))
+
+          allowed = [entry.strip() for entry in os.environ["ALLOWED_FRAME_ANCESTORS"].split(",") if entry.strip()]
+          frame_ancestors = " ".join(["'self'", *allowed])
+          csp = f"frame-ancestors {frame_ancestors};"
+
+          global_headers = config.setdefault("globalHeaders", {})
+          global_headers["Content-Security-Policy"] = csp
+
+          config_path.write_text(json.dumps(config, indent=2) + "\n", encoding="utf-8")
+          PY
+        env:
+          ALLOWED_FRAME_ANCESTORS: ${{ steps.resolve.outputs.allowed_frame_ancestors }}
+
+      - name: Deploy Frontend to Static Web Apps
+        uses: Azure/static-web-apps-deploy@v1
+        with:
+          azure_static_web_apps_api_token: ${{ secrets.AZURE_STATIC_WEB_APPS_API_TOKEN }}
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          action: upload
+          app_location: ${{ inputs.frontend_dir }}/dist
+          skip_app_build: true
+          output_location: ''

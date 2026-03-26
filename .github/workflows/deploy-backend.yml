@@ -1,0 +1,16 @@
+name: Deploy Backend
+
+on:
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  deploy:
+    uses: Evert-Bouw/Solvaters_app_basis/.github/workflows/core-deploy-backend.yml@main
+    with:
+      params_file: infra/app/parameters.prod.json
+      backend_dir: backend
+    secrets: inherit
