@@ -5,7 +5,7 @@ on:
 
 jobs:
   deploy:
-    uses: Evert-Bouw/Solvaters_app_basis/.github/workflows/core-deploy-frontend.yml@main
+    uses: ./.github/workflows/core-deploy-frontend.yml
     with:
       params_file: infra/app/parameters.prod.json
       frontend_dir: frontend

@@ -1,10 +1,10 @@
 import { AppSettings } from './types.js';
 
 export const DEFAULT_APP_SETTINGS: AppSettings = {
-  pageTitle: 'App',
-  emptyStateTitle: 'Leeg canvas',
+  pageTitle: 'Solvaters Voorcalculatie',
+  emptyStateTitle: 'Voorcalculatie',
   emptyStateDescription:
-    'Deze pagina is bewust leeg. De app leest alleen de ingestelde context uit de URL en toont in de kop de code en naam van het gekozen record.',
+    'Deze app gebruikt de gedeelde core-basis en bouwt daar de voorcalculatie-functionaliteit bovenop.',
   useContextFromParamId: true,
 };
 

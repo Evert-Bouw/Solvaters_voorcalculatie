@@ -9,7 +9,7 @@ permissions:
 
 jobs:
   deploy:
-    uses: Evert-Bouw/Solvaters_app_basis/.github/workflows/core-deploy-backend.yml@main
+    uses: ./.github/workflows/core-deploy-backend.yml
     with:
       params_file: infra/app/parameters.prod.json
       backend_dir: backend

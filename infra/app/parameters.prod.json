@@ -12,7 +12,7 @@
       "value": "voorcsolvopslag"
     },
     "afasSecretAppName": {
-      "value": "voorcalculatie-solvaters"
+      "value": "solvaters-voorcalculatie"
     },
     "frontendApiBaseUrl": {
       "value": "https://solvaters-voorcalculatie-api.azurewebsites.net"

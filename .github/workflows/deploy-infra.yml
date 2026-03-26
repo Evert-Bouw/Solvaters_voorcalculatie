@@ -9,7 +9,7 @@ permissions:
 
 jobs:
   deploy:
-    uses: Evert-Bouw/Solvaters_app_basis/.github/workflows/core-deploy-infra.yml@main
+    uses: ./.github/workflows/core-deploy-infra.yml
     with:
       params_file: infra/app/parameters.prod.json
       template_file: infra/core/main.bicep
