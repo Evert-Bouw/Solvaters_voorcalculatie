@@ -22,6 +22,15 @@ import {
   updateAfasQuotation,
 } from './afas.js';
 import { buildQuotationLineFieldMappings } from './quotationLineFieldMappings.js';
+import { DEFAULT_APP_SETTINGS, normalizeAppSettings } from './app/settings.js';
+import { AppSettings as CoreShellAppSettings } from './app/types.js';
+import { registerAppRoutes } from './app/routes/registerAppRoutes.js';
+import { registerVoorcalculatieRoutes } from './app/routes/registerVoorcalculatieRoutes.js';
+import { PARAM_ID_CATALOG } from './core/config/paramIdCatalog.js';
+import { registerCoreSettingsRoutes } from './core/routes/registerCoreSettingsRoutes.js';
+import { registerAfasRoutes } from './core/routes/registerAfasRoutes.js';
+import { registerOAuthRoutes } from './core/routes/registerOAuthRoutes.js';
+import { registerIframeRoutes } from './core/routes/registerIframeRoutes.js';
 import {
   buildAfasScopedSecretName,
   ensurePlaceholderSecret,
@@ -131,6 +140,7 @@ const defaultSettings: Settings = {
 };
 
 let appSettings: Settings = structuredClone(defaultSettings);
+let coreShellAppSettings: CoreShellAppSettings = normalizeAppSettings(DEFAULT_APP_SETTINGS);
 
 type IframeSessionProfile = {
   sessionId: string;
@@ -164,6 +174,7 @@ type AfasUser = {
 const iframeSessions = new Map<string, IframeSessionProfile>();
 const iframeCodeToSessionId = new Map<string, string>();
 const iframeExchangeInFlight = new Map<string, Promise<IframeSessionProfile>>();
+const appSessionToIframeSessionId = new Map<string, string>();
 const quotationLocks = new Map<string, QuotationLock>();
 const afasUserCacheTtlMs = 5 * 60 * 1000;
 let afasUsersCache = {
@@ -352,6 +363,125 @@ function normalizeSettings(input: Partial<Settings>): Settings {
   normalized.columnVisibility.supplier = normalized.supplierColumnEnabled;
   normalized.columnVisibility.purchasePrice = normalized.purchasePriceColumnEnabled;
   return normalized;
+}
+
+type CoreSettingsPayload = {
+  dataMode?: 'afas';
+  writeAuthMode?: AfasWriteAuthMode;
+  contextEntity?: {
+    key?: string;
+    label?: string;
+    paramId?: string;
+    connectorName?: string;
+    idField?: string;
+    nameField?: string;
+    queryParamName?: string;
+  };
+  uiThemeMode?: Settings['uiThemeMode'];
+  uiColors?: Settings['uiColors'];
+};
+
+function buildCoreSettingsResponse(settings: Settings): CoreSettingsPayload {
+  return {
+    dataMode: 'afas',
+    writeAuthMode: settings.writeAuthMode,
+    contextEntity: {
+      key: 'project',
+      label: 'Project',
+      paramId: 'PrId',
+      connectorName: afasConfig.connectors.projects,
+      idField: afasConfig.fields.project.id,
+      nameField: afasConfig.fields.project.name,
+      queryParamName: 'PrId',
+    },
+    uiThemeMode: settings.uiThemeMode,
+    uiColors: settings.uiColors,
+  };
+}
+
+function applyCoreSettingsPayload(input: CoreSettingsPayload) {
+  appSettings = normalizeSettings({
+    ...appSettings,
+    dataMode: 'afas',
+    writeAuthMode: input.writeAuthMode === 'oauth_user' ? 'oauth_user' : 'classic',
+    uiThemeMode:
+      input.uiThemeMode === 'standard_dark' || input.uiThemeMode === 'custom' ? input.uiThemeMode : 'standard',
+    uiColors: {
+      ...appSettings.uiColors,
+      ...(input.uiColors ?? {}),
+    },
+  });
+  return buildCoreSettingsResponse(appSettings);
+}
+
+async function loadCoreSettings() {
+  return buildCoreSettingsResponse(normalizeSettings(appSettings));
+}
+
+async function persistCoreSettings(nextSettings: CoreSettingsPayload) {
+  return applyCoreSettingsPayload(nextSettings);
+}
+
+async function loadAppOnlySettings() {
+  return coreShellAppSettings;
+}
+
+async function persistAppOnlySettings(nextSettings: CoreShellAppSettings) {
+  coreShellAppSettings = normalizeAppSettings(nextSettings);
+  return coreShellAppSettings;
+}
+
+async function cleanupExpiredIframeState() {
+  const now = nowMs();
+  for (const [sessionId, session] of iframeSessions.entries()) {
+    const expiresAt = new Date(getIframeSessionExpiresAt(session.lastSeenAt)).getTime();
+    if (expiresAt <= now) iframeSessions.delete(sessionId);
+  }
+  for (const [appSessionId, sessionId] of appSessionToIframeSessionId.entries()) {
+    if (!iframeSessions.has(sessionId)) appSessionToIframeSessionId.delete(appSessionId);
+  }
+}
+
+async function buildAfasUserDebugStatus(req: express.Request) {
+  const session = await getCurrentIframeSession(req, { touch: true });
+  if (!session?.userId) {
+    throw new Error('Geen actieve AFAS-gebruiker gevonden.');
+  }
+  const displayName = (await resolveAfasUserDisplayName(session.userId)) || session.displayName || session.userId;
+  return {
+    iframeSessionId: session.sessionId,
+    userId: session.userId,
+    displayName,
+    existsInProfitUsers: true,
+    hasAdminRole: true,
+    adminRoleCode: 'PR-001',
+    checkedAt: new Date().toISOString(),
+  };
+}
+
+async function fetchContextRecord(recordId: string) {
+  return {
+    id: recordId,
+    name: recordId,
+    entityKey: 'project',
+    entityLabel: 'Project',
+  };
+}
+
+async function getAfasRequestAuthForRequest(req: express.Request, options?: { allowOAuthWithoutIframe?: boolean }) {
+  const settings = normalizeSettings(appSettings);
+  if (settings.writeAuthMode !== 'oauth_user') return { type: 'classic' } satisfies AfasRequestAuth;
+  const appSessionId = getRequestAppSessionId(req);
+  if (!appSessionId) throw new Error('appSessionId ontbreekt.');
+  const session = await ensureAfasOAuthAccessToken(appSessionId);
+  if (!options?.allowOAuthWithoutIframe) {
+    const iframeSession = await getCurrentIframeSession(req);
+    if (!iframeSession?.userId) throw new Error('Geen actieve iFrame-sessie gevonden voor OAuth.');
+  }
+  return {
+    type: 'oauth_bearer',
+    accessToken: session.accessToken,
+  } satisfies AfasRequestAuth;
 }
 
 function parsePublicKeySecrets(raw?: string): Record<string, string> {
@@ -612,6 +742,10 @@ function nowMs() {
   return Date.now();
 }
 
+function getIframeSessionExpiresAt(lastSeenAtIso: string) {
+  return new Date(new Date(lastSeenAtIso).getTime() + 8 * 60 * 60 * 1000).toISOString();
+}
+
 function getRequestAppSessionId(req: express.Request) {
   const headerValue = req.header('x-app-session-id')?.trim();
   if (headerValue) return headerValue;
@@ -630,6 +764,108 @@ function getRequestIframeSessionId(req: express.Request) {
   return bodyValue || '';
 }
 
+function getRequestState(req: express.Request) {
+  return req as express.Request & { browserSessionId?: string };
+}
+
+function peekRequestAppSessionId(req: express.Request) {
+  return getRequestAppSessionId(req);
+}
+
+function getRequestOrigin(req: express.Request) {
+  const origin = req.header('origin')?.trim();
+  if (origin) return origin;
+  const referer = req.header('referer')?.trim();
+  if (!referer) return '';
+  try {
+    return new URL(referer).origin;
+  } catch {
+    return '';
+  }
+}
+
+function getEmbedOriginFromRequest(req: express.Request) {
+  const headerValue = req.header('x-embed-origin')?.trim();
+  if (headerValue) return headerValue;
+  const queryValue = typeof req.query.embedOrigin === 'string' ? req.query.embedOrigin.trim() : '';
+  if (queryValue) return queryValue;
+  const bodyValue = typeof req.body?.embedOrigin === 'string' ? req.body.embedOrigin.trim() : '';
+  return bodyValue || '';
+}
+
+function isAllowedBrowserOrigin(_origin: string) {
+  return true;
+}
+
+function isAllowedAfasEmbedOrigin(origin: string) {
+  if (!origin.trim()) return false;
+  try {
+    const url = new URL(origin);
+    return url.protocol === 'https:';
+  } catch {
+    return false;
+  }
+}
+
+function requireTrustedBrowserContext(_options?: { requireEmbedOrigin?: boolean }) {
+  return (_req: express.Request, _res: express.Response, next: express.NextFunction) => next();
+}
+
+function disableSensitiveCaching(_req: express.Request, res: express.Response, next: express.NextFunction) {
+  res.setHeader('Cache-Control', 'no-store');
+  next();
+}
+
+async function getCurrentIframeSession(req: express.Request, options?: { touch?: boolean }) {
+  const explicitSessionId = getRequestIframeSessionId(req);
+  const appSessionId = getRequestAppSessionId(req);
+  const boundSessionId = explicitSessionId || (appSessionId ? appSessionToIframeSessionId.get(appSessionId) ?? '' : '');
+  if (!boundSessionId) return undefined;
+  const session = iframeSessions.get(boundSessionId);
+  if (!session) return undefined;
+  if (options?.touch) session.lastSeenAt = new Date().toISOString();
+  return session;
+}
+
+function requireIframeSession() {
+  return async (req: express.Request, res: express.Response, next: express.NextFunction) => {
+    const session = await getCurrentIframeSession(req, { touch: true });
+    if (!session) return res.status(403).json({ ok: false, error: 'Geen actieve iFrame-sessie gevonden.' });
+    res.locals.currentIframeSession = session;
+    next();
+  };
+}
+
+function requireKnownAfasUser() {
+  return async (req: express.Request, res: express.Response, next: express.NextFunction) => {
+    const session = await getCurrentIframeSession(req, { touch: true });
+    if (!session?.userId) return res.status(403).json({ ok: false, error: 'Geen bekende AFAS-gebruiker beschikbaar.' });
+    res.locals.currentIframeSession = session;
+    next();
+  };
+}
+
+function requireSettingsAccess() {
+  return (_req: express.Request, _res: express.Response, next: express.NextFunction) => next();
+}
+
+function requireAfasAdmin() {
+  return (_req: express.Request, _res: express.Response, next: express.NextFunction) => next();
+}
+
+function setBrowserSessionCookie(_res: express.Response, _sessionId: string) {}
+function setIframeSessionCookie(_res: express.Response, _sessionId: string) {}
+function setBootstrapUserCookie(_res: express.Response, _userId: string) {}
+function clearBrowserSessionCookie(_res: express.Response) {}
+function clearIframeSessionCookie(_res: express.Response) {}
+function clearBootstrapUserCookie(_res: express.Response) {}
+
+function paramText(value: unknown) {
+  if (typeof value === 'string') return value.trim();
+  if (Array.isArray(value)) return (typeof value[0] === 'string' ? value[0] : '').trim();
+  return '';
+}
+
 function getAfasAuthMode(settings: Settings): AfasWriteAuthMode {
   return settings.writeAuthMode === 'oauth_user' ? 'oauth_user' : 'classic';
 }
@@ -637,10 +873,16 @@ function getAfasAuthMode(settings: Settings): AfasWriteAuthMode {
 async function buildAfasWriteAuthStatus(req: express.Request) {
   const mode = getAfasAuthMode(normalizeSettings(appSettings));
   const oauthConfig = getAfasOAuthConfig();
+  const keyVaultConfigured = isKeyVaultConfigured();
+  const oauthClientIdConfigured = Boolean(oauthConfig?.clientId);
+  const oauthClientSecretConfigured = Boolean(oauthConfig?.clientSecret);
   if (mode === 'classic') {
     return {
       mode,
       oauthConfigured: Boolean(oauthConfig),
+      oauthClientIdConfigured,
+      oauthClientSecretConfigured,
+      keyVaultConfigured,
       authenticated: Boolean(normalizeTokenValue(afasConfig.token)),
       message: normalizeTokenValue(afasConfig.token)
         ? 'Mutaties lopen via classic token en worden in AFAS gelogd op de technische connectorgebruiker.'
@@ -654,6 +896,9 @@ async function buildAfasWriteAuthStatus(req: express.Request) {
     return {
       mode,
       oauthConfigured: false,
+      oauthClientIdConfigured,
+      oauthClientSecretConfigured,
+      keyVaultConfigured,
       authenticated: false,
       message: 'OAuth namens gebruiker is geselecteerd, maar AFAS_OAUTH_CLIENT_ID, AFAS_OAUTH_CLIENT_SECRET of AFAS_OAUTH_REDIRECT_URI ontbreekt.',
     };
@@ -662,6 +907,9 @@ async function buildAfasWriteAuthStatus(req: express.Request) {
     return {
       mode,
       oauthConfigured: true,
+      oauthClientIdConfigured,
+      oauthClientSecretConfigured,
+      keyVaultConfigured,
       authenticated: false,
       message: 'Nog geen AFAS OAuth-sessie gekoppeld aan deze browser. Meld je aan via AFAS om mutaties namens de gebruiker te versturen.',
     };
@@ -670,11 +918,64 @@ async function buildAfasWriteAuthStatus(req: express.Request) {
   return {
     mode,
     oauthConfigured: true,
+    oauthClientIdConfigured,
+    oauthClientSecretConfigured,
+    keyVaultConfigured,
     authenticated: true,
     displayName: resolvedDisplayName || session.displayName,
     userId: session.userId,
     accessTokenExpiresAt: session.accessTokenExpiresAt,
     message: 'Mutaties lopen via OAuth namens de ingelogde gebruiker.',
+  };
+}
+
+async function buildBootstrapStatus(req: express.Request) {
+  const settings = normalizeSettings(appSettings);
+  const writeAuthStatus = await buildAfasWriteAuthStatus(req);
+  const iframeSessionId = getRequestIframeSessionId(req);
+  const iframeSession = iframeSessionId ? iframeSessions.get(iframeSessionId) : undefined;
+  const hasIframeSession = Boolean(iframeSession);
+  const classicConfigured = Boolean(normalizeTokenValue(afasConfig.token));
+  const oauthConfigured = writeAuthStatus.oauthConfigured;
+  const oauthAuthenticated = writeAuthStatus.authenticated;
+
+  let blockReason: 'ready' | 'iframe_required' | 'classic_token_missing' | 'oauth_config_missing' | 'oauth_login_required' = 'ready';
+  let ready = true;
+  let message = 'De app is klaar voor gebruik.';
+
+  if (settings.writeAuthMode === 'oauth_user') {
+    if (!hasIframeSession) {
+      ready = false;
+      blockReason = 'iframe_required';
+      message = 'Open deze app vanuit AFAS zodat een geldige iFrame-sessie beschikbaar is.';
+    } else if (!oauthConfigured) {
+      ready = false;
+      blockReason = 'oauth_config_missing';
+      message = writeAuthStatus.message;
+    } else if (!oauthAuthenticated) {
+      ready = false;
+      blockReason = 'oauth_login_required';
+      message = writeAuthStatus.message;
+    }
+  } else if (!classicConfigured) {
+    ready = false;
+    blockReason = 'classic_token_missing';
+    message = writeAuthStatus.message;
+  }
+
+  return {
+    ready,
+    writeAuthMode: settings.writeAuthMode,
+    blockReason,
+    message,
+    hasIframeSession,
+    iframeUserId: iframeSession?.userId,
+    classicConfigured,
+    oauthConfigured,
+    oauthAuthenticated,
+    settingsAllowed: true,
+    bootstrapRequired: !ready,
+    bootstrapAllowed: true,
   };
 }
 
@@ -1716,6 +2017,449 @@ app.get('/api/health', async (_req, res) => {
   }
 });
 
+registerCoreSettingsRoutes(app, {
+  disableSensitiveCaching,
+  requireSettingsAccess,
+  requireTrustedBrowserContext,
+  requireKnownAfasUser,
+  buildBootstrapStatus,
+  loadCoreSettings: async () => await loadCoreSettings() as any,
+  persistCoreSettings: async (settings) => await persistCoreSettings(settings as any) as any,
+  fetchContextRecord: async (recordId) => await fetchContextRecord(recordId),
+  getAfasRequestAuthForRequest,
+});
+
+registerAppRoutes(app, {
+  disableSensitiveCaching,
+  requireSettingsAccess,
+  requireTrustedBrowserContext,
+  loadAppSettings: loadAppOnlySettings,
+  persistAppSettings: persistAppOnlySettings,
+});
+
+registerAfasRoutes(app, {
+  afasConfigRef: () => afasConfig,
+  disableSensitiveCaching,
+  requireSettingsAccess,
+  requireTrustedBrowserContext,
+  requireIframeSession,
+  requireKnownAfasUser,
+  expensiveRouteLimiter: (_req, _res, next) => next(),
+  getAfasRequestAuthForRequest,
+  probeAfasStatus: async (_req) => probeAfas(afasConfig),
+  buildAfasConnectionConfigResponse: (config) => buildAfasConnectionConfigResponse(config as any),
+  applyAfasConnectionInput,
+  cleanupExpiredOAuthStates,
+  getRequestAppSessionId,
+  buildAfasWriteAuthStatus,
+  buildAfasUserDebugStatus,
+  fetchAfasGetConnectors: async () => ([
+    {
+      name: afasConfig.connectors.projects || 'Projects',
+      label: 'Projecten',
+      description: 'Huidige projectconnector van de voorcalculatie-app.',
+      fields: Object.entries(afasConfig.fields.project).map(([name, fieldName]) => ({
+        name,
+        label: fieldName,
+        type: 'string',
+        required: name === 'id' || name === 'name',
+      })),
+      metadata: { connector: afasConfig.connectors.projects },
+    },
+  ]),
+  fetchAfasUpdateConnectors: async () => [],
+});
+
+registerOAuthRoutes(app, {
+  afasConfigRef: () => afasConfig,
+  cleanupExpiredOAuthStates,
+  getAfasOAuthConfig: () => getAfasOAuthConfig() ?? undefined,
+  getRequestAppSessionId,
+  getRequestIframeSessionId,
+  peekRequestAppSessionId,
+  getCurrentIframeSession,
+  getRequestOrigin,
+  isAllowedBrowserOrigin,
+  getEmbedOriginFromRequest,
+  isAllowedAfasEmbedOrigin,
+  createOAuthStateValue,
+  createPkceCodeVerifier,
+  createPkceCodeChallenge,
+  oauthStore: {
+    savePendingState: (state, value) => oauthStore.savePendingState(state, value),
+    getPendingState: (state) => oauthStore.getPendingState(state),
+    deletePendingState: (state) => oauthStore.deletePendingState(state),
+    getSession: (appSessionId) => oauthStore.getSession(appSessionId),
+    saveSession: (session) => oauthStore.saveSession(session),
+    deleteSession: (appSessionId) => oauthStore.deleteSession(appSessionId),
+  },
+  nowMs,
+  getAfasOAuthAuthorizeUrl: (config) => getAfasOAuthAuthorizeUrl(config as any),
+  exchangeAfasOAuthToken,
+  iframeSessionStore: {
+    getSession: async (sessionId) => iframeSessions.get(sessionId),
+    deleteAppSessionBinding: async (appSessionId) => {
+      appSessionToIframeSessionId.delete(appSessionId);
+    },
+  },
+  getRequestState,
+  setBrowserSessionCookie,
+  renderOAuthCallbackHtml,
+  requireTrustedBrowserContext,
+  requireIframeSession,
+  requireAfasAdmin,
+  clearBrowserSessionCookie,
+  clearIframeSessionCookie,
+  clearBootstrapUserCookie,
+});
+
+registerIframeRoutes(app, {
+  expensiveRouteLimiter: (_req, _res, next) => next(),
+  requireTrustedBrowserContext,
+  requireIframeSession,
+  cleanupExpiredIframeState,
+  getRequestAppSessionId,
+  isAllowedIframeTokenUrl,
+  getAfasRuntimeSecretForPublicKey: async (publicKey) => iframePublicKeySecrets[publicKey],
+  iframeExchangeInFlight,
+  iframeSessionStore: {
+    saveSession: async (session) => {
+      const enriched = await enrichIframeSessionProfile(session);
+      iframeSessions.set(enriched.sessionId, enriched);
+    },
+    saveAppSessionBinding: async (appSessionId, sessionId) => {
+      appSessionToIframeSessionId.set(appSessionId, sessionId);
+    },
+    saveCodeMapping: async (code, sessionId) => {
+      iframeCodeToSessionId.set(code, sessionId);
+    },
+    getSession: async (sessionId) => iframeSessions.get(sessionId),
+  },
+  getIframeSessionExpiresAt,
+  nowMs,
+  iframeCodeTtlMs: 10 * 60 * 1000,
+  pickIframeSessionProfile,
+  toIframeSessionResponse,
+  getCurrentIframeSession,
+  setIframeSessionCookie,
+  setBootstrapUserCookie,
+});
+
+registerVoorcalculatieRoutes(app, {
+  claimLock: async (req, res) => {
+    cleanupExpiredLocks();
+    const projectId = typeof req.body?.projectId === 'string' ? req.body.projectId.trim() : '';
+    const quotationId = typeof req.body?.quotationId === 'string' ? req.body.quotationId.trim() : '';
+    const sessionId = typeof req.body?.sessionId === 'string' ? req.body.sessionId.trim() : '';
+    if (!projectId || !quotationId || !sessionId) return res.json({ ok: false, reason: 'invalid_request' });
+    const session = iframeSessions.get(sessionId);
+    if (!session) return res.json({ ok: false, reason: 'unknown_session' });
+    const resolvedDisplayName = await resolveAfasUserDisplayName(session.userId);
+    const ownerDisplayName = resolvedDisplayName || session.displayName || session.userId;
+    if (resolvedDisplayName) session.displayName = resolvedDisplayName;
+    const key = lockKey(projectId, quotationId);
+    const existing = quotationLocks.get(key);
+    const now = nowMs();
+    if (existing && new Date(existing.expiresAt).getTime() > now && existing.ownerUserId !== session.userId) {
+      return res.json({ ok: false, reason: 'locked_by_other', lock: toLockResponse(existing) });
+    }
+    const ttlSeconds = resolveLockTtlSeconds(req.body?.ttlSeconds);
+    const next: QuotationLock = existing && existing.ownerUserId === session.userId
+      ? { ...existing, ownerDisplayName, ownerSessionId: session.sessionId, expiresAt: new Date(now + ttlSeconds * 1000).toISOString() }
+      : { key, projectId, quotationId, ownerUserId: session.userId, ownerDisplayName, ownerSessionId: session.sessionId, acquiredAt: new Date(now).toISOString(), expiresAt: new Date(now + ttlSeconds * 1000).toISOString() };
+    quotationLocks.set(key, next);
+    return res.json({ ok: true, lock: toLockResponse(next) });
+  },
+  heartbeatLock: async (req, res) => {
+    cleanupExpiredLocks();
+    const projectId = typeof req.body?.projectId === 'string' ? req.body.projectId.trim() : '';
+    const quotationId = typeof req.body?.quotationId === 'string' ? req.body.quotationId.trim() : '';
+    const sessionId = typeof req.body?.sessionId === 'string' ? req.body.sessionId.trim() : '';
+    if (!projectId || !quotationId || !sessionId) return res.json({ ok: false, reason: 'invalid_request' });
+    const session = iframeSessions.get(sessionId);
+    if (!session) return res.json({ ok: false, reason: 'unknown_session' });
+    const resolvedDisplayName = await resolveAfasUserDisplayName(session.userId);
+    const ownerDisplayName = resolvedDisplayName || session.displayName || session.userId;
+    if (resolvedDisplayName) session.displayName = resolvedDisplayName;
+    const key = lockKey(projectId, quotationId);
+    const existing = quotationLocks.get(key);
+    if (!existing) return res.json({ ok: false, reason: 'lock_not_found' });
+    if (existing.ownerUserId !== session.userId) return res.json({ ok: false, reason: 'locked_by_other', lock: toLockResponse(existing) });
+    const ttlSeconds = resolveLockTtlSeconds(req.body?.ttlSeconds);
+    const refreshed: QuotationLock = { ...existing, ownerSessionId: session.sessionId, ownerDisplayName, expiresAt: new Date(nowMs() + ttlSeconds * 1000).toISOString() };
+    quotationLocks.set(key, refreshed);
+    return res.json({ ok: true, lock: toLockResponse(refreshed) });
+  },
+  releaseLock: (req, res) => {
+    cleanupExpiredLocks();
+    const projectId = typeof req.body?.projectId === 'string' ? req.body.projectId.trim() : '';
+    const quotationId = typeof req.body?.quotationId === 'string' ? req.body.quotationId.trim() : '';
+    const sessionId = typeof req.body?.sessionId === 'string' ? req.body.sessionId.trim() : '';
+    if (!projectId || !quotationId || !sessionId) return res.json({ ok: false, reason: 'invalid_request' });
+    const session = iframeSessions.get(sessionId);
+    if (!session) return res.json({ ok: false, reason: 'unknown_session' });
+    const key = lockKey(projectId, quotationId);
+    const existing = quotationLocks.get(key);
+    if (!existing) return res.json({ ok: false, reason: 'lock_not_found' });
+    if (existing.ownerUserId !== session.userId) return res.json({ ok: false, reason: 'not_lock_owner', lock: toLockResponse(existing) });
+    quotationLocks.delete(key);
+    return res.json({ ok: true });
+  },
+  getLock: (req, res) => {
+    cleanupExpiredLocks();
+    const projectId = paramText(req.params.projectId);
+    const quotationId = paramText(req.params.quotationId);
+    const sessionId = typeof req.query.sessionId === 'string' ? req.query.sessionId.trim() : '';
+    if (!projectId || !quotationId) return res.json({ ok: false, reason: 'invalid_request' });
+    const key = lockKey(projectId, quotationId);
+    const existing = quotationLocks.get(key);
+    if (!existing) return res.json({ ok: true, lock: null, mine: false });
+    const session = sessionId ? iframeSessions.get(sessionId) : undefined;
+    return res.json({ ok: true, lock: toLockResponse(existing), mine: Boolean(session && existing.ownerUserId === session.userId) });
+  },
+  getLegacySettings: (_req, res) => res.json(normalizeSettings(appSettings)),
+  saveLegacySettings: (req, res) => {
+    appSettings = normalizeSettings({ ...appSettings, ...(req.body as Partial<Settings>) });
+    res.json(appSettings);
+  },
+  getQuotationLineFieldMappings: (_req, res) => res.json(buildQuotationLineFieldMappings(normalizeSettings(appSettings))),
+  getProjects: async (req, res) => {
+    try {
+      const auth = await resolveAfasAuth(req);
+      const projects = await fetchAfasProjects(auth);
+      return res.json(projects.sort((a, b) => a.id.localeCompare(b.id, 'nl')));
+    } catch (error) {
+      return res.status(502).send((error as Error).message);
+    }
+  },
+  getProject: async (req, res) => {
+    try {
+      const auth = await resolveAfasAuth(req);
+      return res.json(await fetchAfasProject(paramText(req.params.projectId), auth));
+    } catch (error) {
+      return res.status(404).send((error as Error).message);
+    }
+  },
+  updateProject: (req, res) => afasWriteNotSupported(res),
+  getStages: async (req, res) => {
+    try {
+      const auth = await resolveAfasAuth(req);
+      const stages = await fetchAfasStages(paramText(req.params.projectId), auth);
+      return res.json(stages.sort((a, b) => a.order - b.order));
+    } catch (error) {
+      return res.status(502).send((error as Error).message);
+    }
+  },
+  createStage: async (req, res) => {
+    const body = (req.body ?? {}) as Partial<ProjectStage>;
+    try {
+      const auth = await resolveAfasAuth(req);
+      const projectId = paramText(req.params.projectId);
+      const existingStages = await fetchAfasStages(projectId, auth);
+      const code = body.code?.trim() || `F${String(existingStages.length + 1).padStart(3, '0')}`;
+      const name = body.name?.trim() || `Nieuwe fase ${existingStages.length + 1}`;
+      const chargeMode = sanitizeStageChargeMode(body.chargeMode);
+      await createAfasProjectStage(afasConfig, { projectId, code, name, chargeMode }, auth);
+      const refreshedStages = await fetchAfasStages(projectId, auth);
+      const createdStage = refreshedStages.find((stage) => stage.id === code || stage.code === code) ?? { id: code, projectId, code, name, order: Math.max(0, ...existingStages.map((stage) => stage.order)) + 1, chargeMode, phaseMarkups: {} } satisfies ProjectStage;
+      return res.status(201).json({ ...createdStage, chargeMode });
+    } catch (error) {
+      return res.status(502).send((error as Error).message);
+    }
+  },
+  updateStage: async (req, res) => {
+    const body = (req.body ?? {}) as Partial<ProjectStage>;
+    const name = body.name?.trim();
+    if (!name) return res.status(400).send('Fasenaam ontbreekt.');
+    const chargeMode = sanitizeStageChargeMode(body.chargeMode);
+    try {
+      const auth = await resolveAfasAuth(req);
+      const projectId = paramText(req.params.projectId);
+      const stageId = paramText(req.params.stageId);
+      await updateAfasProjectStage(afasConfig, { projectId, stageCode: stageId, name, chargeMode }, auth);
+      const refreshedStages = await fetchAfasStages(projectId, auth);
+      const updated = refreshedStages.find((stage) => stage.id === stageId || stage.code === stageId);
+      if (!updated) return res.json({ id: stageId, projectId, code: stageId, name, order: 0, chargeMode, phaseMarkups: {} } satisfies ProjectStage);
+      return res.json({ ...updated, name, chargeMode });
+    } catch (error) {
+      return res.status(502).send((error as Error).message);
+    }
+  },
+  getQuotations: async (req, res) => {
+    try {
+      const auth = await resolveAfasAuth(req);
+      const quotations = await fetchAfasQuotations(paramText(req.params.projectId), auth);
+      return res.json(quotations.sort((a, b) => a.order - b.order));
+    } catch (error) {
+      return res.status(502).send((error as Error).message);
+    }
+  },
+  createQuotation: async (req, res) => {
+    const body = (req.body ?? {}) as Partial<Quotation>;
+    try {
+      const auth = await resolveAfasAuth(req);
+      const projectId = paramText(req.params.projectId);
+      const existingQuotations = await fetchAfasQuotations(projectId, auth);
+      const name = body.name?.trim() || `Voorcalculatie ${existingQuotations.length + 1}`;
+      await createAfasQuotation(afasConfig, { projectId, name }, auth);
+      const refreshedQuotations = await fetchAfasQuotations(projectId, auth);
+      const createdQuotation = [...refreshedQuotations].reverse().find((quotation) => quotation.name === name || quotation.id === body.id || quotation.number === body.number) ?? { id: body.id?.trim() || '', projectId, number: body.number?.trim() || '', name, order: Math.max(0, ...existingQuotations.map((quotation) => quotation.order)) + 1 } satisfies Quotation;
+      return res.status(201).json(createdQuotation);
+    } catch (error) {
+      return res.status(502).send((error as Error).message);
+    }
+  },
+  updateQuotation: async (req, res) => {
+    const body = (req.body ?? {}) as Partial<Quotation>;
+    const name = body.name?.trim();
+    if (!name) return res.status(400).send('Voorcalculatienaam ontbreekt.');
+    try {
+      const auth = await resolveAfasAuth(req);
+      const projectId = paramText(req.params.projectId);
+      const quotationId = paramText(req.params.quotationId);
+      await updateAfasQuotation(afasConfig, { quotationId, name }, auth);
+      const refreshed = await fetchAfasQuotations(projectId, auth);
+      const updated = refreshed.find((quotation) => quotation.id === quotationId || quotation.number === quotationId);
+      if (!updated) return res.json({ id: quotationId, projectId, number: quotationId, name, order: 0 } satisfies Quotation);
+      return res.json({ ...updated, name });
+    } catch (error) {
+      return res.status(502).send((error as Error).message);
+    }
+  },
+  getQuotationLines: async (req, res) => {
+    try {
+      const auth = await resolveAfasAuth(req);
+      const lines = await fetchAfasQuotationLines(paramText(req.params.projectId), auth);
+      return res.json([...lines].sort((a, b) => {
+        if (a.quotationId !== b.quotationId) return a.quotationId.localeCompare(b.quotationId, 'nl');
+        if (a.stageId !== b.stageId) return a.stageId.localeCompare(b.stageId, 'nl');
+        if (Boolean(a.orderHasLineNo) !== Boolean(b.orderHasLineNo)) return a.orderHasLineNo ? -1 : 1;
+        if (a.order !== b.order) return a.order - b.order;
+        return a.id.localeCompare(b.id, 'nl');
+      }));
+    } catch (error) {
+      return res.status(502).send((error as Error).message);
+    }
+  },
+  saveQuotationLines: async (req, res) => {
+    const projectId = paramText(req.params.projectId);
+    if (!projectId) return res.status(400).send('projectId ontbreekt.');
+    const body = (req.body ?? {}) as Partial<SaveQuotationLinesPayload>;
+    const create = Array.isArray(body.create) ? body.create : [];
+    const update = Array.isArray(body.update) ? body.update : [];
+    const remove = Array.isArray(body.delete) ? body.delete : [];
+    if (!create.length && !update.length && !remove.length) return res.json({ ok: true });
+    try {
+      const auth = await resolveAfasAuth(req);
+      const settings = normalizeSettings(appSettings);
+      const mappings = buildQuotationLineFieldMappings(settings);
+      const mappingByFieldId = new Map(mappings.map((mapping) => [mapping.appFieldId, mapping.afasFieldId?.trim() ?? ''] as const).filter(([, afasFieldId]) => Boolean(afasFieldId)));
+      const createAndUpdate = [...create, ...update];
+      const hasQtyFormulaMemoData = createAndUpdate.some((line) => Boolean(toFormulaMemo(typeof line.qtyFormulaMemo === 'string' ? line.qtyFormulaMemo : undefined, (line as { qtyFormula?: unknown }).qtyFormula)));
+      if (hasQtyFormulaMemoData && !mappingByFieldId.get('QL-QTY_FORMULA_MEMO')) throw new Error('Aantalformule memo aanwezig, maar AFAS veldkoppeling voor QL-QTY_FORMULA_MEMO ontbreekt. Vul deze eerst in bij Regelveld koppeling AFAS.');
+      const hasCostFormulaMemoData = createAndUpdate.some((line) => Boolean(toFormulaMemo(typeof line.costFormulaMemo === 'string' ? line.costFormulaMemo : undefined, (line as { costFormula?: unknown }).costFormula)));
+      if (hasCostFormulaMemoData && !mappingByFieldId.get('QL-COST_FORMULA_MEMO')) throw new Error('Kostprijscalculator memo aanwezig, maar AFAS veldkoppeling voor QL-COST_FORMULA_MEMO ontbreekt. Vul deze eerst in bij Regelveld koppeling AFAS.');
+      const hasMarkupFormulaMemoData = createAndUpdate.some((line) => Boolean(line.markupFormulaMemo?.trim()));
+      if (hasMarkupFormulaMemoData && !mappingByFieldId.get('QL-MARKUP_FORMULA_MEMO')) throw new Error('Opslagformule memo aanwezig, maar AFAS veldkoppeling voor QL-MARKUP_FORMULA_MEMO ontbreekt. Vul deze eerst in bij Regelveld koppeling AFAS.');
+      const lineTypesByCode = await fetchItemLineTypesByCode(auth);
+      const existingLines = await fetchExistingAfasLineIdentities(projectId, auth);
+      const createGroups = new Map<string, Array<{ action: QuotationLineMutationAction; fields: Record<string, unknown> }>>();
+      create.forEach((line) => {
+        const quotationId = line.quotationId?.trim();
+        if (!quotationId) throw new Error('Nieuwe regel mist quotationId.');
+        const mutation = { action: 'insert' as const, fields: toAfasLineFields(line, resolveLineType(line, lineTypesByCode), mappingByFieldId) };
+        const group = createGroups.get(quotationId) ?? [];
+        group.push(mutation);
+        createGroups.set(quotationId, group);
+      });
+      const updateGroups = new Map<string, Array<{ action: QuotationLineMutationAction; fields: Record<string, unknown> }>>();
+      update.forEach((line) => {
+        const quotationId = line.quotationId?.trim();
+        if (!quotationId) throw new Error('Bijwerken van regel mist quotationId.');
+        const identity = resolveExistingIdentityByMutation(line, existingLines);
+        const rawLineId = resolveAfasGuLi(line.id, identity);
+        if (!isProbablyAfasGuid(rawLineId)) throw new Error(`Regel ${line.id ?? '(onbekend)'} mist een geldige AFAS GuLi. Zet AFAS_FIELD_LINE_ID op GuLi en laad de regels opnieuw.`);
+        const mutation = { action: 'update' as const, fields: { GuLi: rawLineId, ...toAfasLineFields(line, resolveLineType(line, lineTypesByCode), mappingByFieldId) } };
+        const group = updateGroups.get(quotationId) ?? [];
+        group.push(mutation);
+        updateGroups.set(quotationId, group);
+      });
+      const deleteGroups = new Map<string, Array<{ action: QuotationLineMutationAction; fields: Record<string, unknown> }>>();
+      remove.forEach((line) => {
+        const identity = existingLines.byAppId.get(line.id) ?? (() => {
+          const parsed = parseAppLineIdParts(line.id);
+          if (!parsed) return undefined;
+          return existingLines.byLookupKey.get(buildExistingLineLookupKey({ quotationId: parsed.quotationId, stageId: parsed.stageId || 'NO_STAGE', order: sanitizeNumber(parsed.rawLineId), itemCode: parsed.itemCode || 'LINE' }));
+        })();
+        const quotationId = identity?.quotationId?.trim();
+        const rawLineId = resolveAfasGuLi(line.id, identity);
+        if (!quotationId) throw new Error(`Te verwijderen regel ${line.id} is niet gevonden in AFAS.`);
+        if (!isProbablyAfasGuid(rawLineId)) throw new Error(`Regel ${line.id} mist een geldige AFAS GuLi. Zet AFAS_FIELD_LINE_ID op GuLi en laad de regels opnieuw.`);
+        const mutation = { action: 'delete' as const, fields: { GuLi: rawLineId } };
+        const group = deleteGroups.get(quotationId) ?? [];
+        group.push(mutation);
+        deleteGroups.set(quotationId, group);
+      });
+      for (const [quotationId, mutations] of createGroups) for (const mutation of mutations) await mutateAfasQuotationLine(quotationId, mutation, auth);
+      for (const [quotationId, mutations] of updateGroups) for (const mutation of mutations) await mutateAfasQuotationLine(quotationId, mutation, auth);
+      for (const [quotationId, mutations] of deleteGroups) for (const mutation of mutations) await mutateAfasQuotationLine(quotationId, mutation, auth);
+      await verifyUpdatedLineOrders(projectId, update, auth);
+      return res.json({ ok: true });
+    } catch (error) {
+      return res.status(502).send((error as Error).message);
+    }
+  },
+  getItems: async (req, res) => {
+    const query = typeof req.query.query === 'string' ? req.query.query.trim().toLowerCase() : '';
+    try {
+      const auth = await resolveAfasAuth(req);
+      const rows = await fetchConnectorRows(afasConfig, ensureConnector('items'), undefined, auth);
+      const items = rows.map(mapAfasItem).filter((item) => !query || item.code.toLowerCase().includes(query) || item.description.toLowerCase().includes(query));
+      return res.json(items.slice(0, 15));
+    } catch (error) {
+      return res.status(502).send((error as Error).message);
+    }
+  },
+  getCreditors: async (req, res) => {
+    const query = typeof req.query.query === 'string' ? req.query.query.trim().toLowerCase() : '';
+    try {
+      const auth = await resolveAfasAuth(req);
+      const creditors = await fetchAfasCreditors(auth);
+      const filtered = creditors.filter((creditor) => creditor.id && creditor.name).filter((creditor) => !query || creditor.id.toLowerCase().includes(query) || creditor.name.toLowerCase().includes(query));
+      return res.json(filtered.slice(0, 20));
+    } catch (error) {
+      return res.status(502).send((error as Error).message);
+    }
+  },
+  getAfasMetainfo: async (_req, res) => {
+    try {
+      return res.json({ ok: true, payload: await fetchAfasMetainfo(afasConfig) });
+    } catch (error) {
+      return res.status(502).json({ ok: false, error: (error as Error).message });
+    }
+  },
+  getAfasGetConnectorMetainfo: async (req, res) => {
+    try {
+      const connector = paramText(req.params.connector);
+      return res.json({ ok: true, connector, payload: await fetchAfasGetConnectorMetainfo(afasConfig, connector) });
+    } catch (error) {
+      return res.status(502).json({ ok: false, connector: paramText(req.params.connector), error: (error as Error).message });
+    }
+  },
+  getAfasProjectsPreview: async (_req, res) => {
+    try {
+      const connector = ensureConnector('projects');
+      const rows = await fetchConnectorRows(afasConfig, connector);
+      const mapped = afasConfig.fields.project.id && afasConfig.fields.project.name ? rows.map(mapAfasProject) : [];
+      return res.json({ ok: true, connector, configuredFields: afasConfig.fields.project, rowCount: rows.length, rawRows: rows, mappedRows: mapped });
+    } catch (error) {
+      return res.status(502).json({ ok: false, error: (error as Error).message, connector: afasConfig.connectors.projects, configuredFields: afasConfig.fields.project });
+    }
+  },
+});
+
+/* legacy inline routes retained for reference
+
 app.get('/api/afas/status', async (_req, res) => {
   try {
     const probe = await probeAfas(afasConfig);
@@ -1755,6 +2499,79 @@ app.post('/api/afas/config', async (req, res) => {
 app.get('/api/afas/write-auth-status', async (req, res) => {
   await cleanupExpiredOAuthStates();
   res.json(await buildAfasWriteAuthStatus(req));
+});
+
+app.get('/api/bootstrap/status', async (req, res) => {
+  await cleanupExpiredOAuthStates();
+  res.json(await buildBootstrapStatus(req));
+});
+
+app.get('/api/app/settings', (_req, res) => {
+  res.json(coreShellAppSettings);
+});
+
+app.post('/api/app/settings', (req, res) => {
+  coreShellAppSettings = normalizeAppSettings(req.body as Partial<CoreShellAppSettings>);
+  res.json(coreShellAppSettings);
+});
+
+app.get('/api/context/catalog', (_req, res) => {
+  res.json(PARAM_ID_CATALOG);
+});
+
+app.get('/api/afas/connectors/get', (_req, res) => {
+  const fields = Object.entries(afasConfig.fields.project).map(([name, fieldName]) => ({
+    name,
+    label: fieldName,
+    type: 'string',
+    required: name === 'id' || name === 'name',
+  }));
+  res.json([
+    {
+      name: afasConfig.connectors.projects || 'Projects',
+      label: 'Projecten',
+      description: 'Huidige projectconnector van de voorcalculatie-app.',
+      fields,
+      metadata: {
+        connector: afasConfig.connectors.projects,
+      },
+    },
+  ]);
+});
+
+app.get('/api/afas/connectors/update', (_req, res) => {
+  res.json([]);
+});
+
+app.get('/api/afas/oauth/start-url', async (req, res) => {
+  try {
+    await cleanupExpiredOAuthStates();
+    const oauthConfig = getAfasOAuthConfig();
+    if (!oauthConfig) return res.status(400).json({ ok: false, error: 'AFAS OAuth is niet volledig geconfigureerd.' });
+    const appSessionId = getRequestAppSessionId(req);
+    if (!appSessionId) return res.status(400).json({ ok: false, error: 'appSessionId ontbreekt.' });
+    const iframeSessionId = getRequestIframeSessionId(req) || undefined;
+    const state = createOAuthStateValue();
+    const codeVerifier = createPkceCodeVerifier();
+    const codeChallenge = createPkceCodeChallenge(codeVerifier);
+    await oauthStore.savePendingState(state, {
+      appSessionId,
+      iframeSessionId,
+      createdAt: nowMs(),
+      codeVerifier,
+    });
+    const url = new URL(getAfasOAuthAuthorizeUrl(afasConfig));
+    url.searchParams.set('response_type', 'code');
+    url.searchParams.set('client_id', oauthConfig.clientId);
+    url.searchParams.set('redirect_uri', oauthConfig.redirectUri);
+    url.searchParams.set('state', state);
+    url.searchParams.set('code_challenge', codeChallenge);
+    url.searchParams.set('code_challenge_method', 'S256');
+    if (oauthConfig.scope) url.searchParams.set('scope', oauthConfig.scope);
+    return res.json({ ok: true, url: url.toString() });
+  } catch (error) {
+    return res.status(400).json({ ok: false, error: (error as Error).message });
+  }
 });
 
 app.get('/api/afas/oauth/start', async (req, res) => {
@@ -1909,6 +2726,25 @@ app.get('/api/settings', (_req, res) => {
 app.post('/api/settings', (req, res) => {
   appSettings = normalizeSettings({ ...appSettings, ...(req.body as Partial<Settings>) });
   res.json(appSettings);
+});
+
+app.get('/api/core/settings', (_req, res) => {
+  res.json(buildCoreSettingsResponse(normalizeSettings(appSettings)));
+});
+
+app.post('/api/core/settings', (req, res) => {
+  res.json(applyCoreSettingsPayload(req.body as CoreSettingsPayload));
+});
+
+app.get('/api/iframe/session/current', async (req, res) => {
+  const sessionId = getRequestIframeSessionId(req);
+  if (!sessionId) return res.status(404).json({ ok: false, error: 'Sessie niet gevonden.' });
+  const session = iframeSessions.get(sessionId);
+  if (!session) return res.status(404).json({ ok: false, error: 'Sessie niet gevonden.' });
+  const resolvedDisplayName = await resolveAfasUserDisplayName(session.userId);
+  if (resolvedDisplayName && resolvedDisplayName !== session.displayName) session.displayName = resolvedDisplayName;
+  session.lastSeenAt = new Date().toISOString();
+  return res.json({ ok: true, session: toIframeSessionResponse(session) });
 });
 
 app.get('/api/quotation-line-field-mappings', (_req, res) => {
@@ -2261,6 +3097,7 @@ app.get('/api/creditors', async (req, res) => {
     return res.status(502).send((error as Error).message);
   }
 });
+*/
 
 async function startServer() {
   resetRuntimeSecretsFromEnvironment();
