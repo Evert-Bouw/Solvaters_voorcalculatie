@@ -56,6 +56,7 @@ export default function AppSettingsPage() {
         setSettings(appSettings);
         setDebugFacts([
           { label: 'settingsAllowed', value: String(nextBootstrapStatus.settingsAllowed) },
+          { label: 'bootstrapAllowed', value: String(nextBootstrapStatus.bootstrapAllowed) },
           { label: 'ready', value: String(nextBootstrapStatus.ready) },
           { label: 'writeAuthMode', value: nextBootstrapStatus.writeAuthMode },
           { label: 'blockReason', value: nextBootstrapStatus.blockReason || '-' },
@@ -101,7 +102,8 @@ export default function AppSettingsPage() {
     setRefreshVersion((current) => current + 1);
   }
 
-  const showOverlay = !loading && !bootstrapStatus.settingsAllowed;
+  const hasSettingsAccess = bootstrapStatus.settingsAllowed || bootstrapStatus.bootstrapAllowed;
+  const showOverlay = !loading && !hasSettingsAccess;
   const overlayTitle = useMemo(
     () =>
       bootstrapStatus.blockReason === 'iframe_required'

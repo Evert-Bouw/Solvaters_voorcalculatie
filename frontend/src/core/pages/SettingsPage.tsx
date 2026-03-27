@@ -271,7 +271,7 @@ export default function SettingsPage() {
       pushDebugLine(
         `bootstrapStatus: ready=${String(nextBootstrapStatus.ready)} settingsAllowed=${String(
           nextBootstrapStatus.settingsAllowed,
-        )} hasIframe=${String(nextBootstrapStatus.hasIframeSession)} oauthAuthenticated=${String(
+        )} bootstrapAllowed=${String(nextBootstrapStatus.bootstrapAllowed)} hasIframe=${String(nextBootstrapStatus.hasIframeSession)} oauthAuthenticated=${String(
           nextBootstrapStatus.oauthAuthenticated,
         )}`,
       );
@@ -284,7 +284,7 @@ export default function SettingsPage() {
         )} user=${authStatus.userId || '-'}`,
       );
 
-      if (!nextBootstrapStatus.settingsAllowed) {
+      if (!nextBootstrapStatus.settingsAllowed && !nextBootstrapStatus.bootstrapAllowed) {
         setSettings((current) => ({
           ...current,
           writeAuthMode: nextBootstrapStatus.writeAuthMode,
@@ -656,7 +656,8 @@ export default function SettingsPage() {
     setRefreshVersion((current) => current + 1);
   }
 
-  const showOverlay = !loading && !bootstrapStatus.settingsAllowed;
+  const hasSettingsAccess = bootstrapStatus.settingsAllowed || bootstrapStatus.bootstrapAllowed;
+  const showOverlay = !loading && !hasSettingsAccess;
   const hasActiveIframeSession = Boolean(iframeSessionProfile?.sessionId) || bootstrapStatus.hasIframeSession;
   const canStartOauth =
     bootstrapStatus.writeAuthMode === 'oauth_user' &&
@@ -696,6 +697,7 @@ export default function SettingsPage() {
     { label: 'oauthAuthenticated', value: String(writeAuthStatus.authenticated) },
     { label: 'oauthUserId', value: writeAuthStatus.userId || '-' },
     { label: 'settingsAllowed', value: String(bootstrapStatus.settingsAllowed) },
+    { label: 'bootstrapAllowed', value: String(bootstrapStatus.bootstrapAllowed) },
     { label: 'ready', value: String(bootstrapStatus.ready) },
     { label: 'hasIframeSession', value: String(bootstrapStatus.hasIframeSession) },
     { label: 'iframeProfileUserId', value: iframeSessionProfile?.userId || '-' },
