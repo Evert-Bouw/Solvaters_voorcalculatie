@@ -1,7 +1,7 @@
 import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
-import { createHash, randomBytes } from 'crypto';
+import { createHash, createHmac, randomBytes, randomUUID, timingSafeEqual } from 'crypto';
 import {
   AfasConfig,
   AfasEnvironmentType,
@@ -26,6 +26,7 @@ import { DEFAULT_APP_SETTINGS, normalizeAppSettings } from './app/settings.js';
 import { AppSettings as CoreShellAppSettings } from './app/types.js';
 import { registerAppRoutes } from './app/routes/registerAppRoutes.js';
 import { registerVoorcalculatieRoutes } from './app/routes/registerVoorcalculatieRoutes.js';
+import { createAuthCore } from './core/auth/createAuthCore.js';
 import { PARAM_ID_CATALOG } from './core/config/paramIdCatalog.js';
 import { registerCoreSettingsRoutes } from './core/routes/registerCoreSettingsRoutes.js';
 import { registerAfasRoutes } from './core/routes/registerAfasRoutes.js';
@@ -61,6 +62,14 @@ import {
 const app = express();
 const port = Number(process.env.PORT) || 3001;
 let afasConfig = getAfasConfig();
+const generatedSessionSecret = randomBytes(32).toString('hex');
+const sessionSecret = process.env.SESSION_SECRET?.trim() || generatedSessionSecret;
+const isProduction = process.env.NODE_ENV === 'production';
+const cookieSameSite: true | false | 'lax' | 'strict' | 'none' = isProduction ? 'none' : 'lax';
+const cookieSecure = isProduction ? true : 'auto';
+const browserSessionCookieName = 'solvaters.appsid';
+const iframeSessionCookieName = 'solvaters.iframesid';
+const bootstrapUserCookieName = 'solvaters.bootstrapuid';
 const legacyMarkupMap: Record<string, MarkupType> = {
   UITVAL: 'M1',
   AFVAL: 'M2',
@@ -185,6 +194,8 @@ const defaultLockTtlSeconds = 180;
 const maxLockTtlSeconds = 600;
 const iframeTokenAllowedHostSuffixes = ['.afasinsite.nl', '.afas.online'];
 const oauthStateTtlMs = 10 * 60 * 1000;
+const afasAdminRoleCode = 'PR-001';
+const userGroupsConnectorName = 'Profit_UserGroups';
 
 type AfasOAuthConfig = {
   clientId: string;
@@ -199,13 +210,76 @@ type AfasRuntimeSecrets = {
   oauthClientSecret?: string;
   encryptionKey?: string;
   tableStorageConnectionString?: string;
+  bootstrapAdminUserIds: string[];
 };
 
 let iframePublicKeySecrets = parsePublicKeySecrets(process.env.AFAS_PUBLICKEY_SECRETS);
 let oauthStore: OAuthStore = createOAuthStore(oauthStateTtlMs);
 let afasRuntimeSecrets: AfasRuntimeSecrets = {
   publicKeySecrets: iframePublicKeySecrets,
+  bootstrapAdminUserIds: [],
 };
+
+function isDebugSessionFlowEnabled() {
+  const rawValue = process.env.DEBUG_SESSION_FLOW?.trim().toLowerCase() || '';
+  return rawValue === '1' || rawValue === 'true' || rawValue === 'yes' || rawValue === 'on';
+}
+
+function rebuildAuthCore() {
+  return createAuthCore({
+    coreSettingsRef: () => buildCoreSettingsResponse(normalizeSettings(appSettings)),
+    afasConfigRef: () => afasConfig,
+    oauthStore,
+    iframeSessionStore: {
+      getSessionIdByAppSession: async (appSessionId) => appSessionToIframeSessionId.get(appSessionId),
+      getSession: async (sessionId) => iframeSessions.get(sessionId),
+      deleteAppSessionBinding: async (appSessionId) => {
+        appSessionToIframeSessionId.delete(appSessionId);
+      },
+      saveSession: async (session) => {
+        iframeSessions.set(session.sessionId, session);
+      },
+      saveAppSessionBinding: async (appSessionId, sessionId) => {
+        appSessionToIframeSessionId.set(appSessionId, sessionId);
+      },
+    },
+    getRequestAppSessionId,
+    peekRequestAppSessionId,
+    peekRequestIframeSessionId: getRequestIframeSessionId,
+    peekRequestBootstrapUserId: getBootstrapUserIdFromRequest,
+    getIframeSessionExpiresAt,
+    userGroupsConnectorName,
+    afasAdminRoleCode,
+    normalizeTokenValue,
+    getAfasOAuthConfig: () => {
+      const oauthConfig = getAfasOAuthConfig();
+      return oauthConfig
+        ? {
+            clientId: oauthConfig.clientId,
+            clientSecret: oauthConfig.clientSecret,
+            redirectUri: oauthConfig.redirectUri,
+            scope: oauthConfig.scope,
+          }
+        : undefined;
+    },
+    getAfasOAuthConfigState: async () => ({
+      oauthClientIdConfigured: Boolean(afasRuntimeSecrets.oauthClientId?.trim() || process.env.AFAS_OAUTH_CLIENT_ID?.trim()),
+      oauthClientSecretConfigured: Boolean(
+        afasRuntimeSecrets.oauthClientSecret?.trim() || process.env.AFAS_OAUTH_CLIENT_SECRET?.trim(),
+      ),
+      keyVaultConfigured: isKeyVaultConfigured(),
+    }),
+    exchangeAfasOAuthToken,
+    fetchConnectorRows: async (config, connector, options, auth) =>
+      fetchConnectorRows(config as any, connector, options as any, auth),
+    nowMs,
+    iframeTokenAllowedHostSuffixes,
+    getBootstrapAdminUserIds: () => afasRuntimeSecrets.bootstrapAdminUserIds,
+    debugSessionFlow: isDebugSessionFlowEnabled(),
+  });
+}
+
+let authCore = rebuildAuthCore();
 
 type AfasConnectionConfigResponse = {
   mode: 'afas';
@@ -366,19 +440,19 @@ function normalizeSettings(input: Partial<Settings>): Settings {
 }
 
 type CoreSettingsPayload = {
-  dataMode?: 'afas';
-  writeAuthMode?: AfasWriteAuthMode;
-  contextEntity?: {
-    key?: string;
-    label?: string;
-    paramId?: string;
-    connectorName?: string;
-    idField?: string;
-    nameField?: string;
-    queryParamName?: string;
+  dataMode: 'afas';
+  writeAuthMode: AfasWriteAuthMode;
+  contextEntity: {
+    key: string;
+    label: string;
+    paramId: string;
+    connectorName: string;
+    idField: string;
+    nameField: string;
+    queryParamName: string;
   };
-  uiThemeMode?: Settings['uiThemeMode'];
-  uiColors?: Settings['uiColors'];
+  uiThemeMode: Settings['uiThemeMode'];
+  uiColors: Settings['uiColors'];
 };
 
 function buildCoreSettingsResponse(settings: Settings): CoreSettingsPayload {
@@ -389,9 +463,9 @@ function buildCoreSettingsResponse(settings: Settings): CoreSettingsPayload {
       key: 'project',
       label: 'Project',
       paramId: 'PrId',
-      connectorName: afasConfig.connectors.projects,
-      idField: afasConfig.fields.project.id,
-      nameField: afasConfig.fields.project.name,
+      connectorName: afasConfig.connectors.projects || '',
+      idField: afasConfig.fields.project.id || '',
+      nameField: afasConfig.fields.project.name || '',
       queryParamName: 'PrId',
     },
     uiThemeMode: settings.uiThemeMode,
@@ -443,20 +517,7 @@ async function cleanupExpiredIframeState() {
 }
 
 async function buildAfasUserDebugStatus(req: express.Request) {
-  const session = await getCurrentIframeSession(req, { touch: true });
-  if (!session?.userId) {
-    throw new Error('Geen actieve AFAS-gebruiker gevonden.');
-  }
-  const displayName = (await resolveAfasUserDisplayName(session.userId)) || session.displayName || session.userId;
-  return {
-    iframeSessionId: session.sessionId,
-    userId: session.userId,
-    displayName,
-    existsInProfitUsers: true,
-    hasAdminRole: true,
-    adminRoleCode: 'PR-001',
-    checkedAt: new Date().toISOString(),
-  };
+  return authCore.buildAfasUserDebugStatus(req);
 }
 
 async function fetchContextRecord(recordId: string) {
@@ -469,19 +530,7 @@ async function fetchContextRecord(recordId: string) {
 }
 
 async function getAfasRequestAuthForRequest(req: express.Request, options?: { allowOAuthWithoutIframe?: boolean }) {
-  const settings = normalizeSettings(appSettings);
-  if (settings.writeAuthMode !== 'oauth_user') return { type: 'classic' } satisfies AfasRequestAuth;
-  const appSessionId = getRequestAppSessionId(req);
-  if (!appSessionId) throw new Error('appSessionId ontbreekt.');
-  const session = await ensureAfasOAuthAccessToken(appSessionId);
-  if (!options?.allowOAuthWithoutIframe) {
-    const iframeSession = await getCurrentIframeSession(req);
-    if (!iframeSession?.userId) throw new Error('Geen actieve iFrame-sessie gevonden voor OAuth.');
-  }
-  return {
-    type: 'oauth_bearer',
-    accessToken: session.accessToken,
-  } satisfies AfasRequestAuth;
+  return authCore.getAfasRequestAuthForRequest(req, options);
 }
 
 function parsePublicKeySecrets(raw?: string): Record<string, string> {
@@ -498,6 +547,17 @@ function parsePublicKeySecrets(raw?: string): Record<string, string> {
   }
 }
 
+function parseBootstrapAdminUserIds(raw?: string): string[] {
+  if (!raw?.trim()) return [];
+  return [...new Set(
+    raw
+      .split(/[\r\n,;]+/)
+      .map((value) => value.trim())
+      .filter(Boolean)
+      .map((value) => value.toLowerCase()),
+  )];
+}
+
 function resetRuntimeSecretsFromEnvironment() {
   iframePublicKeySecrets = parsePublicKeySecrets(process.env.AFAS_PUBLICKEY_SECRETS);
   afasRuntimeSecrets = {
@@ -507,11 +567,13 @@ function resetRuntimeSecretsFromEnvironment() {
     oauthClientSecret: process.env.AFAS_OAUTH_CLIENT_SECRET?.trim() || undefined,
     encryptionKey: process.env.AFAS_ENCRYPTION_KEY?.trim() || undefined,
     tableStorageConnectionString: process.env.AZURE_TABLE_STORAGE_CONNECTION_STRING?.trim() || undefined,
+    bootstrapAdminUserIds: parseBootstrapAdminUserIds(process.env.BOOTSTRAP_ADMIN_USER_IDS),
   };
   oauthStore = createOAuthStore(oauthStateTtlMs, {
     connectionString: afasRuntimeSecrets.tableStorageConnectionString,
     encryptionKey: afasRuntimeSecrets.encryptionKey,
   });
+  authCore = rebuildAuthCore();
 }
 
 async function refreshRuntimeSecretsFromKeyVault(environmentNumber?: string) {
@@ -533,11 +595,13 @@ async function refreshRuntimeSecretsFromKeyVault(environmentNumber?: string) {
     oauthClientSecret: values['oauth-client-secret'],
     encryptionKey: values['encryption-key'],
     tableStorageConnectionString: values['azure-table-storage-connection-string'],
+    bootstrapAdminUserIds: parseBootstrapAdminUserIds(values['bootstrap-admin-user-ids']),
   };
   oauthStore = createOAuthStore(oauthStateTtlMs, {
     connectionString: afasRuntimeSecrets.tableStorageConnectionString,
     encryptionKey: afasRuntimeSecrets.encryptionKey,
   });
+  authCore = rebuildAuthCore();
 }
 
 async function loadAfasConfigFromKeyVault() {
@@ -625,14 +689,7 @@ function getAfasOAuthTokenUrl(config: AfasConfig) {
 }
 
 function isAllowedIframeTokenUrl(tokenurl: string) {
-  try {
-    const url = new URL(tokenurl);
-    if (url.protocol !== 'https:') return false;
-    const host = url.hostname.toLowerCase();
-    return iframeTokenAllowedHostSuffixes.some((suffix) => host === suffix.slice(1) || host.endsWith(suffix));
-  } catch {
-    return false;
-  }
+  return authCore.isAllowedIframeTokenUrl(tokenurl);
 }
 
 function readNestedStringByKey(payload: unknown, targetKey: string): string | undefined {
@@ -662,31 +719,7 @@ function readNestedStringByKey(payload: unknown, targetKey: string): string | un
 }
 
 function pickIframeSessionProfile(payload: unknown, fallbackSessionId: string): IframeSessionProfile {
-  const sessionId =
-    readNestedStringByKey(payload, 'sessionid') ??
-    readNestedStringByKey(payload, 'sessionId') ??
-    fallbackSessionId;
-  const userId =
-    readNestedStringByKey(payload, 'userId') ??
-    readNestedStringByKey(payload, 'userid') ??
-    readNestedStringByKey(payload, 'usercode');
-  if (!userId) {
-    throw new Error('AFAS sessieprofiel bevat geen userId.');
-  }
-  const personCode = readNestedStringByKey(payload, 'personCode') ?? readNestedStringByKey(payload, 'personcode');
-  const employeeId = readNestedStringByKey(payload, 'employeeId') ?? readNestedStringByKey(payload, 'employeeid');
-  const environmentId = readNestedStringByKey(payload, 'environmentId') ?? readNestedStringByKey(payload, 'environmentid');
-  const displayName = employeeId || personCode || userId;
-  return {
-    sessionId,
-    userId,
-    personCode,
-    employeeId,
-    environmentId,
-    displayName,
-    lastSeenAt: new Date().toISOString(),
-    raw: payload,
-  };
+  return authCore.pickIframeSessionProfile(payload, fallbackSessionId);
 }
 
 function mapAfasUser(row: Record<string, unknown>): AfasUser {
@@ -742,17 +775,149 @@ function nowMs() {
   return Date.now();
 }
 
+function getCookieMaxAgeMs() {
+  return 1000 * 60 * 60 * 8;
+}
+
+function parseCookieHeader(cookieHeader?: string) {
+  if (!cookieHeader?.trim()) return {};
+  return Object.fromEntries(
+    cookieHeader
+      .split(';')
+      .map((entry) => {
+        const index = entry.indexOf('=');
+        if (index < 0) return [entry.trim(), ''];
+        const key = entry.slice(0, index).trim();
+        const rawValue = entry.slice(index + 1).trim();
+        try {
+          return [key, decodeURIComponent(rawValue)];
+        } catch {
+          return [key, rawValue];
+        }
+      })
+      .filter(([key]) => key),
+  );
+}
+
+function signBrowserSessionValue(value: string) {
+  return createHmac('sha256', sessionSecret).update(value, 'utf8').digest('base64url');
+}
+
+function serializeCookie(name: string, value: string, options?: { maxAgeMs?: number }) {
+  const segments = [`${name}=${encodeURIComponent(value)}`, 'Path=/', 'HttpOnly'];
+  if (cookieSameSite) {
+    const sameSiteValue = cookieSameSite === true ? 'Strict' : String(cookieSameSite);
+    segments.push(`SameSite=${sameSiteValue.charAt(0).toUpperCase()}${sameSiteValue.slice(1)}`);
+  }
+  if (cookieSecure === true || cookieSecure === 'auto') {
+    segments.push('Secure');
+  }
+  if (typeof options?.maxAgeMs === 'number') {
+    const maxAgeSeconds = Math.max(0, Math.floor(options.maxAgeMs / 1000));
+    segments.push(`Max-Age=${maxAgeSeconds}`);
+    if (maxAgeSeconds === 0) {
+      segments.push('Expires=Thu, 01 Jan 1970 00:00:00 GMT');
+    }
+  }
+  return segments.join('; ');
+}
+
+function parseSignedBrowserSessionId(rawValue?: string) {
+  const trimmed = rawValue?.trim();
+  if (!trimmed) return undefined;
+  const separatorIndex = trimmed.lastIndexOf('.');
+  if (separatorIndex <= 0 || separatorIndex === trimmed.length - 1) return undefined;
+  const sessionId = trimmed.slice(0, separatorIndex);
+  const signature = trimmed.slice(separatorIndex + 1);
+  const expectedSignature = signBrowserSessionValue(sessionId);
+  const signatureBuffer = Buffer.from(signature);
+  const expectedBuffer = Buffer.from(expectedSignature);
+  if (signatureBuffer.length !== expectedBuffer.length) return undefined;
+  if (!timingSafeEqual(signatureBuffer, expectedBuffer)) return undefined;
+  return sessionId;
+}
+
+function getBrowserSessionIdFromRequest(req: express.Request) {
+  const cookies = parseCookieHeader(req.header('cookie'));
+  return parseSignedBrowserSessionId(cookies[browserSessionCookieName]);
+}
+
+function getBootstrapUserIdFromRequest(req: express.Request) {
+  const cookies = parseCookieHeader(req.header('cookie'));
+  return parseSignedBrowserSessionId(cookies[bootstrapUserCookieName]);
+}
+
+function setBrowserSessionCookie(res: express.Response, sessionId: string) {
+  const signedValue = `${sessionId}.${signBrowserSessionValue(sessionId)}`;
+  res.append('Set-Cookie', serializeCookie(browserSessionCookieName, signedValue, { maxAgeMs: getCookieMaxAgeMs() }));
+}
+
+function setIframeSessionCookie(res: express.Response, sessionId: string) {
+  const signedValue = `${sessionId}.${signBrowserSessionValue(sessionId)}`;
+  res.append('Set-Cookie', serializeCookie(iframeSessionCookieName, signedValue, { maxAgeMs: getCookieMaxAgeMs() }));
+}
+
+function setBootstrapUserCookie(res: express.Response, userId: string) {
+  const signedValue = `${userId}.${signBrowserSessionValue(userId)}`;
+  res.append('Set-Cookie', serializeCookie(bootstrapUserCookieName, signedValue, { maxAgeMs: getCookieMaxAgeMs() }));
+}
+
+function clearBrowserSessionCookie(res: express.Response) {
+  res.append('Set-Cookie', serializeCookie(browserSessionCookieName, '', { maxAgeMs: 0 }));
+}
+
+function clearIframeSessionCookie(res: express.Response) {
+  res.append('Set-Cookie', serializeCookie(iframeSessionCookieName, '', { maxAgeMs: 0 }));
+}
+
+function clearBootstrapUserCookie(res: express.Response) {
+  res.append('Set-Cookie', serializeCookie(bootstrapUserCookieName, '', { maxAgeMs: 0 }));
+}
+
 function getIframeSessionExpiresAt(lastSeenAtIso: string) {
   return new Date(new Date(lastSeenAtIso).getTime() + 8 * 60 * 60 * 1000).toISOString();
 }
 
-function getRequestAppSessionId(req: express.Request) {
-  const headerValue = req.header('x-app-session-id')?.trim();
-  if (headerValue) return headerValue;
-  const queryValue = typeof req.query.appSessionId === 'string' ? req.query.appSessionId.trim() : '';
-  if (queryValue) return queryValue;
-  const bodyValue = typeof req.body?.appSessionId === 'string' ? req.body.appSessionId.trim() : '';
-  return bodyValue || '';
+function getAppSessionIdFromRequest(req: express.Request) {
+  const fromHeader = req.header('x-app-session-id')?.trim();
+  if (fromHeader) return fromHeader;
+  const fromQuery = typeof req.query.appSessionId === 'string' ? req.query.appSessionId.trim() : '';
+  if (fromQuery) return fromQuery;
+  const fromBody = typeof req.body?.appSessionId === 'string' ? req.body.appSessionId.trim() : '';
+  return fromBody;
+}
+
+function isValidAppSessionId(value?: string) {
+  const trimmed = value?.trim() || '';
+  if (!trimmed) return false;
+  return /^[A-Za-z0-9._:-]{16,128}$/.test(trimmed);
+}
+
+function getRequestAppSessionId(req: express.Request, res?: express.Response) {
+  const requestState = getRequestState(req);
+  if (requestState.browserSessionId) {
+    if (res) setBrowserSessionCookie(res, requestState.browserSessionId);
+    return requestState.browserSessionId;
+  }
+
+  const explicitSessionId = getAppSessionIdFromRequest(req);
+  if (isValidAppSessionId(explicitSessionId)) {
+    requestState.browserSessionId = explicitSessionId;
+    if (res) setBrowserSessionCookie(res, explicitSessionId);
+    return explicitSessionId;
+  }
+
+  const existing = getBrowserSessionIdFromRequest(req);
+  if (existing) {
+    requestState.browserSessionId = existing;
+    if (res) setBrowserSessionCookie(res, existing);
+    return existing;
+  }
+
+  const nextSessionId = randomUUID();
+  requestState.browserSessionId = nextSessionId;
+  if (res) setBrowserSessionCookie(res, nextSessionId);
+  return nextSessionId;
 }
 
 function getRequestIframeSessionId(req: express.Request) {
@@ -761,7 +926,9 @@ function getRequestIframeSessionId(req: express.Request) {
   const queryValue = typeof req.query.iframeSessionId === 'string' ? req.query.iframeSessionId.trim() : '';
   if (queryValue) return queryValue;
   const bodyValue = typeof req.body?.iframeSessionId === 'string' ? req.body.iframeSessionId.trim() : '';
-  return bodyValue || '';
+  if (bodyValue) return bodyValue;
+  const cookies = parseCookieHeader(req.header('cookie'));
+  return parseSignedBrowserSessionId(cookies[iframeSessionCookieName]) || '';
 }
 
 function getRequestState(req: express.Request) {
@@ -769,7 +936,11 @@ function getRequestState(req: express.Request) {
 }
 
 function peekRequestAppSessionId(req: express.Request) {
-  return getRequestAppSessionId(req);
+  const requestState = getRequestState(req);
+  if (requestState.browserSessionId) return requestState.browserSessionId;
+  const explicitSessionId = getAppSessionIdFromRequest(req);
+  if (isValidAppSessionId(explicitSessionId)) return explicitSessionId;
+  return getBrowserSessionIdFromRequest(req) || '';
 }
 
 function getRequestOrigin(req: express.Request) {
@@ -812,53 +983,8 @@ function requireTrustedBrowserContext(_options?: { requireEmbedOrigin?: boolean 
 }
 
 function disableSensitiveCaching(_req: express.Request, res: express.Response, next: express.NextFunction) {
-  res.setHeader('Cache-Control', 'no-store');
-  next();
+  return authCore.disableSensitiveCaching(_req, res, next);
 }
-
-async function getCurrentIframeSession(req: express.Request, options?: { touch?: boolean }) {
-  const explicitSessionId = getRequestIframeSessionId(req);
-  const appSessionId = getRequestAppSessionId(req);
-  const boundSessionId = explicitSessionId || (appSessionId ? appSessionToIframeSessionId.get(appSessionId) ?? '' : '');
-  if (!boundSessionId) return undefined;
-  const session = iframeSessions.get(boundSessionId);
-  if (!session) return undefined;
-  if (options?.touch) session.lastSeenAt = new Date().toISOString();
-  return session;
-}
-
-function requireIframeSession() {
-  return async (req: express.Request, res: express.Response, next: express.NextFunction) => {
-    const session = await getCurrentIframeSession(req, { touch: true });
-    if (!session) return res.status(403).json({ ok: false, error: 'Geen actieve iFrame-sessie gevonden.' });
-    res.locals.currentIframeSession = session;
-    next();
-  };
-}
-
-function requireKnownAfasUser() {
-  return async (req: express.Request, res: express.Response, next: express.NextFunction) => {
-    const session = await getCurrentIframeSession(req, { touch: true });
-    if (!session?.userId) return res.status(403).json({ ok: false, error: 'Geen bekende AFAS-gebruiker beschikbaar.' });
-    res.locals.currentIframeSession = session;
-    next();
-  };
-}
-
-function requireSettingsAccess() {
-  return (_req: express.Request, _res: express.Response, next: express.NextFunction) => next();
-}
-
-function requireAfasAdmin() {
-  return (_req: express.Request, _res: express.Response, next: express.NextFunction) => next();
-}
-
-function setBrowserSessionCookie(_res: express.Response, _sessionId: string) {}
-function setIframeSessionCookie(_res: express.Response, _sessionId: string) {}
-function setBootstrapUserCookie(_res: express.Response, _userId: string) {}
-function clearBrowserSessionCookie(_res: express.Response) {}
-function clearIframeSessionCookie(_res: express.Response) {}
-function clearBootstrapUserCookie(_res: express.Response) {}
 
 function paramText(value: unknown) {
   if (typeof value === 'string') return value.trim();
@@ -871,112 +997,11 @@ function getAfasAuthMode(settings: Settings): AfasWriteAuthMode {
 }
 
 async function buildAfasWriteAuthStatus(req: express.Request) {
-  const mode = getAfasAuthMode(normalizeSettings(appSettings));
-  const oauthConfig = getAfasOAuthConfig();
-  const keyVaultConfigured = isKeyVaultConfigured();
-  const oauthClientIdConfigured = Boolean(oauthConfig?.clientId);
-  const oauthClientSecretConfigured = Boolean(oauthConfig?.clientSecret);
-  if (mode === 'classic') {
-    return {
-      mode,
-      oauthConfigured: Boolean(oauthConfig),
-      oauthClientIdConfigured,
-      oauthClientSecretConfigured,
-      keyVaultConfigured,
-      authenticated: Boolean(normalizeTokenValue(afasConfig.token)),
-      message: normalizeTokenValue(afasConfig.token)
-        ? 'Mutaties lopen via classic token en worden in AFAS gelogd op de technische connectorgebruiker.'
-        : 'Classic token ontbreekt. Mutaties zullen falen totdat AFAS_TOKEN is ingevuld.',
-    };
-  }
-
-  const appSessionId = getRequestAppSessionId(req);
-  const session = appSessionId ? await oauthStore.getSession(appSessionId) : undefined;
-  if (!oauthConfig) {
-    return {
-      mode,
-      oauthConfigured: false,
-      oauthClientIdConfigured,
-      oauthClientSecretConfigured,
-      keyVaultConfigured,
-      authenticated: false,
-      message: 'OAuth namens gebruiker is geselecteerd, maar AFAS_OAUTH_CLIENT_ID, AFAS_OAUTH_CLIENT_SECRET of AFAS_OAUTH_REDIRECT_URI ontbreekt.',
-    };
-  }
-  if (!session) {
-    return {
-      mode,
-      oauthConfigured: true,
-      oauthClientIdConfigured,
-      oauthClientSecretConfigured,
-      keyVaultConfigured,
-      authenticated: false,
-      message: 'Nog geen AFAS OAuth-sessie gekoppeld aan deze browser. Meld je aan via AFAS om mutaties namens de gebruiker te versturen.',
-    };
-  }
-  const resolvedDisplayName = await resolveAfasUserDisplayName(session.userId);
-  return {
-    mode,
-    oauthConfigured: true,
-    oauthClientIdConfigured,
-    oauthClientSecretConfigured,
-    keyVaultConfigured,
-    authenticated: true,
-    displayName: resolvedDisplayName || session.displayName,
-    userId: session.userId,
-    accessTokenExpiresAt: session.accessTokenExpiresAt,
-    message: 'Mutaties lopen via OAuth namens de ingelogde gebruiker.',
-  };
+  return authCore.buildAfasWriteAuthStatus(req);
 }
 
 async function buildBootstrapStatus(req: express.Request) {
-  const settings = normalizeSettings(appSettings);
-  const writeAuthStatus = await buildAfasWriteAuthStatus(req);
-  const iframeSessionId = getRequestIframeSessionId(req);
-  const iframeSession = iframeSessionId ? iframeSessions.get(iframeSessionId) : undefined;
-  const hasIframeSession = Boolean(iframeSession);
-  const classicConfigured = Boolean(normalizeTokenValue(afasConfig.token));
-  const oauthConfigured = writeAuthStatus.oauthConfigured;
-  const oauthAuthenticated = writeAuthStatus.authenticated;
-
-  let blockReason: 'ready' | 'iframe_required' | 'classic_token_missing' | 'oauth_config_missing' | 'oauth_login_required' = 'ready';
-  let ready = true;
-  let message = 'De app is klaar voor gebruik.';
-
-  if (settings.writeAuthMode === 'oauth_user') {
-    if (!hasIframeSession) {
-      ready = false;
-      blockReason = 'iframe_required';
-      message = 'Open deze app vanuit AFAS zodat een geldige iFrame-sessie beschikbaar is.';
-    } else if (!oauthConfigured) {
-      ready = false;
-      blockReason = 'oauth_config_missing';
-      message = writeAuthStatus.message;
-    } else if (!oauthAuthenticated) {
-      ready = false;
-      blockReason = 'oauth_login_required';
-      message = writeAuthStatus.message;
-    }
-  } else if (!classicConfigured) {
-    ready = false;
-    blockReason = 'classic_token_missing';
-    message = writeAuthStatus.message;
-  }
-
-  return {
-    ready,
-    writeAuthMode: settings.writeAuthMode,
-    blockReason,
-    message,
-    hasIframeSession,
-    iframeUserId: iframeSession?.userId,
-    classicConfigured,
-    oauthConfigured,
-    oauthAuthenticated,
-    settingsAllowed: true,
-    bootstrapRequired: !ready,
-    bootstrapAllowed: true,
-  };
+  return authCore.buildBootstrapStatus(req);
 }
 
 async function exchangeAfasOAuthToken(formPayload: URLSearchParams) {
@@ -1111,15 +1136,35 @@ function toLockResponse(lock: QuotationLock) {
 }
 
 function toIframeSessionResponse(session: IframeSessionProfile) {
-  return {
-    sessionId: session.sessionId,
-    userId: session.userId,
-    personCode: session.personCode,
-    employeeId: session.employeeId,
-    environmentId: session.environmentId,
-    displayName: session.displayName,
-    lastSeenAt: session.lastSeenAt,
-  };
+  return authCore.toIframeSessionResponse(session);
+}
+
+async function getCurrentIframeSession(req: express.Request, options?: { touch?: boolean }) {
+  return authCore.getCurrentIframeSession(req, options);
+}
+
+async function getAfasUserByIframeSession(req: express.Request) {
+  return authCore.getAfasUserByIframeSession(req);
+}
+
+async function userHasAfasAdminRole(userId: string, auth: AfasRequestAuth = { type: 'classic' }) {
+  return authCore.userHasAfasAdminRole(userId, auth);
+}
+
+function requireKnownAfasUser() {
+  return authCore.requireKnownAfasUser();
+}
+
+function requireIframeSession() {
+  return authCore.requireIframeSession();
+}
+
+function requireSettingsAccess() {
+  return authCore.requireSettingsAccess();
+}
+
+function requireAfasAdmin() {
+  return authCore.requireAfasAdmin();
 }
 
 function resolveLockTtlSeconds(raw: unknown) {

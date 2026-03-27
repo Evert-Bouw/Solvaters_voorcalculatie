@@ -77,6 +77,7 @@ export async function listBootstrapSecretValues(environmentNumber: string) {
     'oauth-client-secret',
     'encryption-key',
     'azure-table-storage-connection-string',
+    'bootstrap-admin-user-ids',
   ] as const;
 
   const entries = await Promise.all(

@@ -664,7 +664,7 @@ export function createAuthCore(deps: AuthCoreDeps) {
     return async (req: express.Request, res: express.Response, next: express.NextFunction) => {
       try {
         const status = await buildBootstrapStatus(req);
-        if (status.settingsAllowed || status.bootstrapAllowed) {
+        if (status.settingsAllowed) {
           res.locals.bootstrapStatus = status;
           return next();
         }
