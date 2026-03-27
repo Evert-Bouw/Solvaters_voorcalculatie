@@ -443,7 +443,6 @@ export default function AppPage() {
   const [iframeContextMode, setIframeContextMode] = useState<IframeContextMode>('none');
   const [writeAuthStatus, setWriteAuthStatus] = useState<AfasWriteAuthStatus>(DEFAULT_WRITE_AUTH_STATUS);
   const [writeAuthBusy, setWriteAuthBusy] = useState(false);
-  const [writeAuthOverlayDismissed, setWriteAuthOverlayDismissed] = useState(false);
   const [quotationLocks, setQuotationLocks] = useState<Record<string, QuotationLockState>>({});
 
   const [isCreateStageModalOpen, setIsCreateStageModalOpen] = useState(false);
@@ -812,7 +811,7 @@ export default function AppPage() {
 
   useEffect(() => {
     let mounted = true;
-    async function refreshWriteAuthStatus() {
+    async function refreshWriteAuthStatusEffect() {
       try {
         const status = await fetchAfasWriteAuthStatus();
         if (mounted) setWriteAuthStatus(status);
@@ -825,7 +824,7 @@ export default function AppPage() {
         });
       }
     }
-    void refreshWriteAuthStatus();
+    void refreshWriteAuthStatusEffect();
     return () => {
       mounted = false;
     };
@@ -1224,6 +1223,22 @@ export default function AppPage() {
       pendingSaveAfterAuthRef.current = false;
       setWriteAuthBusy(false);
       setSaveError((error as Error).message);
+    }
+  }
+
+  async function refreshWriteAuthStatusFromApp() {
+    setWriteAuthBusy(true);
+    try {
+      const status = await fetchAfasWriteAuthStatus();
+      setWriteAuthStatus(status);
+    } catch (error) {
+      setWriteAuthStatus({
+        ...DEFAULT_WRITE_AUTH_STATUS,
+        mode: settings.writeAuthMode,
+        message: (error as Error).message,
+      });
+    } finally {
+      setWriteAuthBusy(false);
     }
   }
 
@@ -4246,10 +4261,21 @@ export default function AppPage() {
   }, [showPhasePanel, showLibraryPanel, isPhasePanelCollapsed, isLibraryPanelCollapsed]);
 
   const requiresWriteAuthOverlay = Boolean(project && settings.writeAuthMode === 'oauth_user' && !writeAuthStatus.authenticated);
-
-  useEffect(() => {
-    setWriteAuthOverlayDismissed(false);
-  }, [prId, settings.writeAuthMode, writeAuthStatus.authenticated]);
+  const authFlowSteps = [
+    { label: 'Stap 1', title: 'OAuth-configuratie actief', done: writeAuthStatus.oauthConfigured },
+    { label: 'Stap 2', title: 'Aanmelden via AFAS', done: writeAuthStatus.authenticated },
+  ];
+  const nextAuthAction = !writeAuthStatus.oauthConfigured
+    ? 'Rond eerst de OAuth-configuratie af in instellingen.'
+    : !writeAuthStatus.authenticated
+      ? 'Meld je aan via AFAS om wijzigingen te kunnen opslaan.'
+      : 'De OAuth-sessie is actief. Je kunt direct verder.';
+  const writeAuthOverlayTitle = !writeAuthStatus.oauthConfigured ? 'OAuth-configuratie ontbreekt' : 'Aanmelden vereist';
+  const writeAuthOverlayMessage =
+    writeAuthStatus.message ||
+    (!writeAuthStatus.oauthConfigured
+      ? 'Deze app staat in OAuth-modus, maar de AFAS OAuth-configuratie is nog niet compleet.'
+      : 'Deze app staat in OAuth-modus. Zonder actieve AFAS-sessie kunnen wijzigingen niet worden opgeslagen.');
 
   if (loading) return <div className="p-6 text-sm text-slate-700">Laden...</div>;
 
@@ -4276,35 +4302,64 @@ export default function AppPage() {
           )}
         </div>
       ) : null}
-      {requiresWriteAuthOverlay && !writeAuthOverlayDismissed ? (
-        <div className="absolute inset-0 z-40 flex items-center justify-center bg-slate-950/40 px-4 backdrop-blur-[2px]">
-          <div className="w-full max-w-lg rounded-2xl border border-slate-200 bg-white p-6 shadow-2xl">
-            <div className="mb-4 flex items-start justify-between gap-4">
-              <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.14em] text-amber-700">AFAS OAuth vereist</p>
-              <h2 className="mt-1 text-xl font-semibold text-slate-900">Meld eenmalig aan om namens de gebruiker te schrijven</h2>
-              <p className="mt-2 text-sm leading-6 text-slate-600">
-                {writeAuthStatus.message || 'Deze app staat in OAuth-modus. Zonder actieve AFAS-sessie kunnen wijzigingen niet worden opgeslagen.'}
-              </p>
+      {requiresWriteAuthOverlay ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/55 p-6 backdrop-blur-sm">
+          <div className="w-full max-w-2xl rounded-3xl border border-white/20 bg-white p-8 shadow-2xl">
+            <div className="space-y-3">
+              <p className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">AFAS-authenticatie</p>
+              <h2 className="text-2xl font-semibold text-slate-900">{writeAuthOverlayTitle}</h2>
+              <p className="text-sm leading-6 text-slate-600">{writeAuthOverlayMessage}</p>
+            </div>
+
+            <div className="mt-6 rounded-2xl border border-slate-200 bg-slate-50 p-4">
+              <div className="flex flex-wrap gap-3">
+                {authFlowSteps.map((step) => (
+                  <div
+                    key={step.label}
+                    className={`rounded-xl px-3 py-2 text-sm ${
+                      step.done ? 'bg-emerald-100 text-emerald-700' : 'bg-white text-slate-700'
+                    }`}
+                  >
+                    <span className="font-semibold">{step.label}</span> {step.title}
+                  </div>
+                ))}
               </div>
+              <p className="mt-3 text-sm text-slate-600">{nextAuthAction}</p>
+            </div>
+
+            <div className="mt-4 grid gap-3 md:grid-cols-3">
+              <div className="rounded-2xl border border-slate-200 bg-white p-4">
+                <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">Project</p>
+                <p className="mt-2 text-sm font-medium text-slate-900">{project?.id || '-'}</p>
+                <p className="mt-1 text-sm text-slate-600">{project?.name || 'Nog geen project geselecteerd'}</p>
+              </div>
+              <div className="rounded-2xl border border-slate-200 bg-white p-4">
+                <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">Gebruiker</p>
+                <p className="mt-2 text-sm font-medium text-slate-900">
+                  {writeAuthStatus.displayName || iframeSession?.displayName || iframeSession?.userId || 'Onbekend'}
+                </p>
+                <p className="mt-1 text-sm text-slate-600">
+                  {iframeSession?.sessionId ? 'iFrame-sessie gevonden' : 'Nog geen iFrame-sessieprofiel'}
+                </p>
+              </div>
+              <div className="rounded-2xl border border-slate-200 bg-white p-4">
+                <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">Volgende stap</p>
+                <p className="mt-2 text-sm font-medium text-slate-900">{nextAuthAction}</p>
+              </div>
+            </div>
+
+            <div className="mt-6 flex flex-wrap gap-3">
               <button
                 type="button"
-                className="inline-flex h-8 w-8 items-center justify-center rounded border border-slate-300 text-slate-500 hover:bg-slate-100 hover:text-slate-700"
-                onClick={() => setWriteAuthOverlayDismissed(true)}
-                aria-label="Sluiten"
-                title="Sluiten"
+                onClick={() => void refreshWriteAuthStatusFromApp()}
+                disabled={writeAuthBusy}
+                className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
               >
-                x
+                Opnieuw controleren
               </button>
-            </div>
-            <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
-              <div>Project: <span className="font-semibold text-slate-900">{project?.id}</span></div>
-              <div className="mt-1">Gebruiker: <span className="font-semibold text-slate-900">{writeAuthStatus.displayName || iframeSession?.displayName || iframeSession?.userId || 'Onbekend'}</span></div>
-            </div>
-            <div className="mt-5 flex flex-wrap items-center gap-3">
               <button
                 type="button"
-                className="rounded bg-brand-600 px-4 py-2 text-sm font-semibold text-white shadow hover:bg-brand-700 disabled:opacity-50"
+                className="rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-brand-700 disabled:cursor-not-allowed disabled:opacity-60"
                 onClick={() => void startAfasOAuthFromApp()}
                 disabled={writeAuthBusy || !writeAuthStatus.oauthConfigured}
               >
@@ -4312,13 +4367,10 @@ export default function AppPage() {
               </button>
               <NavLink
                 to="/settings"
-                className="rounded border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100"
+                className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
               >
                 Naar instellingen
               </NavLink>
-              <div className="text-xs text-slate-500">
-                {writeAuthStatus.oauthConfigured ? 'Na succesvolle login kun je direct verder in de app.' : 'OAuth backend is nog niet ingericht.'}
-              </div>
             </div>
           </div>
         </div>
