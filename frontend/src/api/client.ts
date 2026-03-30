@@ -18,6 +18,7 @@ import { BootstrapStatus } from '../core/types';
 
 const settingsCacheKey = 'voorcalc_app_settings';
 const appSessionCacheKey = 'voorcalc_app_session_id';
+const iframeSessionStorageKey = 'voorcalc_iframe_session_id';
 const apiBase = (import.meta.env.VITE_API_BASE_URL as string | undefined)?.trim() || '';
 export const DEFAULT_BOOTSTRAP_STATUS: BootstrapStatus = {
   ready: false,
@@ -45,6 +46,17 @@ const legacyMarkupMap: Record<string, Settings['markupOrder'][number]> = {
   W: 'M9',
   RW: 'M10',
 };
+
+function getEmbedOrigin() {
+  const ancestorOrigin = window.location.ancestorOrigins?.[0]?.trim();
+  if (ancestorOrigin) return ancestorOrigin;
+  if (!document.referrer) return '';
+  try {
+    return new URL(document.referrer).origin;
+  } catch {
+    return '';
+  }
+}
 
 function normalizeMarkupKey(value: unknown): Settings['markupOrder'][number] | null {
   if (typeof value !== 'string') return null;
@@ -111,12 +123,15 @@ const defaultSettings: Settings = {
 async function api<T>(url: string, options?: RequestInit): Promise<T> {
   const appSessionId = getOrCreateAppSessionId();
   const iframeSessionId = getStoredIframeSessionId();
+  const embedOrigin = getEmbedOrigin();
   const res = await fetch(`${apiBase}${url}`, {
     ...options,
+    credentials: 'include',
     headers: {
       'Content-Type': 'application/json',
       'X-App-Session-Id': appSessionId,
       ...(iframeSessionId ? { 'X-Iframe-Session-Id': iframeSessionId } : {}),
+      ...(embedOrigin ? { 'X-Embed-Origin': embedOrigin } : {}),
       ...(options?.headers ?? {}),
     },
   });
@@ -147,7 +162,16 @@ export function getOrCreateAppSessionId() {
 }
 
 function getStoredIframeSessionId() {
-  return localStorage.getItem('voorcalc_iframe_session_id')?.trim() || '';
+  return localStorage.getItem(iframeSessionStorageKey)?.trim() || '';
+}
+
+export function storeIframeSessionId(sessionId?: string) {
+  const trimmed = sessionId?.trim() || '';
+  if (!trimmed) {
+    localStorage.removeItem(iframeSessionStorageKey);
+    return;
+  }
+  localStorage.setItem(iframeSessionStorageKey, trimmed);
 }
 
 function normalizeSettings(input: Partial<Settings>): Settings {
@@ -346,10 +370,29 @@ export const exchangeIframeSession = (input: {
   api<{ ok: boolean; session: IframeSessionProfile }>('/api/iframe/exchange', {
     method: 'POST',
     body: JSON.stringify(input),
+  }).then((response) => {
+    storeIframeSessionId(response.session?.sessionId);
+    return response;
   });
 
-export const fetchIframeSessionProfile = (sessionId: string) =>
-  api<{ ok: boolean; session: IframeSessionProfile }>(`/api/iframe/session/${encodeURIComponent(sessionId)}`);
+export async function fetchIframeSessionProfile(sessionId?: string) {
+  const explicitSessionId = sessionId?.trim() || '';
+  const storedSessionId = getStoredIframeSessionId();
+  const resolvedSessionId = explicitSessionId || storedSessionId;
+  const endpoint = resolvedSessionId
+    ? `/api/iframe/session/${encodeURIComponent(resolvedSessionId)}`
+    : '/api/iframe/session/current';
+  try {
+    const response = await api<{ ok: boolean; session: IframeSessionProfile }>(endpoint);
+    storeIframeSessionId(response.session?.sessionId);
+    return response;
+  } catch (error) {
+    if (resolvedSessionId) {
+      storeIframeSessionId('');
+    }
+    throw error;
+  }
+}
 
 export const claimQuotationLock = (input: { projectId: string; quotationId: string; sessionId: string }) =>
   api<QuotationLockResponse>('/api/locks/claim', {
