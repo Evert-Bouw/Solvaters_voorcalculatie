@@ -281,6 +281,10 @@ function rebuildAuthCore() {
 
 let authCore = rebuildAuthCore();
 
+function allowAllSettingsAccess(): express.RequestHandler {
+  return (_req, _res, next) => next();
+}
+
 type AfasConnectionConfigResponse = {
   mode: 'afas';
   environmentId: string;
@@ -2064,7 +2068,7 @@ app.get('/api/health', async (_req, res) => {
 
 registerCoreSettingsRoutes(app, {
   disableSensitiveCaching,
-  requireSettingsAccess,
+  requireSettingsAccess: allowAllSettingsAccess,
   requireTrustedBrowserContext,
   requireKnownAfasUser,
   buildBootstrapStatus,
@@ -2076,7 +2080,7 @@ registerCoreSettingsRoutes(app, {
 
 registerAppRoutes(app, {
   disableSensitiveCaching,
-  requireSettingsAccess,
+  requireSettingsAccess: allowAllSettingsAccess,
   requireTrustedBrowserContext,
   loadAppSettings: loadAppOnlySettings,
   persistAppSettings: persistAppOnlySettings,
@@ -2085,7 +2089,7 @@ registerAppRoutes(app, {
 registerAfasRoutes(app, {
   afasConfigRef: () => afasConfig,
   disableSensitiveCaching,
-  requireSettingsAccess,
+  requireSettingsAccess: allowAllSettingsAccess,
   requireTrustedBrowserContext,
   requireIframeSession,
   requireKnownAfasUser,
