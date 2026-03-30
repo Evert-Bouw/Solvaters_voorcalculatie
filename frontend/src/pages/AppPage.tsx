@@ -2,11 +2,13 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import { NavLink } from 'react-router-dom';
 import {
+  DEFAULT_BOOTSTRAP_STATUS,
   claimQuotationLock,
   createProjectStage,
   createQuotation,
   exchangeIframeSession,
   fetchAfasWriteAuthStatus,
+  fetchBootstrapStatus,
   fetchCreditors,
   fetchIframeSessionProfile,
   fetchItems,
@@ -24,6 +26,8 @@ import {
   updateProjectStage,
   updateQuotation,
 } from '../api/client';
+import BlockingOverlay from '../core/components/BlockingOverlay';
+import { BootstrapStatus } from '../core/types';
 import {
   CostFormulaOperator,
   Creditor,
@@ -414,6 +418,8 @@ function isDeleteLineHotkey(event: KeyboardEvent) {
 export default function AppPage() {
   const [settings, setSettings] = useState<Settings>(DEFAULT_SETTINGS);
   const [loading, setLoading] = useState(true);
+  const [bootstrapStatus, setBootstrapStatus] = useState<BootstrapStatus>(DEFAULT_BOOTSTRAP_STATUS);
+  const [refreshVersion, setRefreshVersion] = useState(0);
   const urlProjectId = useMemo(() => getProjectIdFromUrlContext(), []);
   const isProjectLockedFromUrl = Boolean(urlProjectId);
 
@@ -795,6 +801,11 @@ export default function AppPage() {
     async function bootstrap() {
       setLoading(true);
       try {
+        const nextBootstrapStatus = await fetchBootstrapStatus();
+        if (!mounted) return;
+        setBootstrapStatus(nextBootstrapStatus);
+        if (!nextBootstrapStatus.ready) return;
+
         const [settingsData, projectOptions] = await Promise.all([fetchSettings(), fetchProjects()]);
         if (!mounted) return;
         setSettings(settingsData);
@@ -807,7 +818,7 @@ export default function AppPage() {
     return () => {
       mounted = false;
     };
-  }, []);
+  }, [refreshVersion, iframeSession?.sessionId, iframeContextMode]);
 
   useEffect(() => {
     let mounted = true;
@@ -835,9 +846,10 @@ export default function AppPage() {
       const payload = event.data as { type?: string; ok?: boolean; message?: string } | null;
       if (!payload || payload.type !== 'afas-oauth-complete') return;
       setWriteAuthBusy(false);
-      void fetchAfasWriteAuthStatus()
-        .then((status) => {
+      void Promise.all([fetchAfasWriteAuthStatus(), fetchBootstrapStatus().catch(() => undefined)])
+        .then(([status, nextBootstrapStatus]) => {
           setWriteAuthStatus(status);
+          if (nextBootstrapStatus) setBootstrapStatus(nextBootstrapStatus);
           if (pendingSaveAfterAuthRef.current && status.authenticated) {
             pendingSaveAfterAuthRef.current = false;
             void handleSave();
@@ -859,6 +871,13 @@ export default function AppPage() {
     let mounted = true;
 
     async function loadLibraryContext() {
+      if (!bootstrapStatus.ready) {
+        setLibraryProject(null);
+        setLibraryStages([]);
+        setLibraryQuotations([]);
+        setLibraryLines([]);
+        return;
+      }
       try {
         const [projectResult, stagesResult, quotationsResult, linesResult] = await Promise.allSettled([
           fetchProject('BIB'),
@@ -901,11 +920,15 @@ export default function AppPage() {
     return () => {
       mounted = false;
     };
-  }, []);
+  }, [bootstrapStatus.ready]);
 
   useEffect(() => {
     let mounted = true;
     async function loadProjectContext() {
+      if (!bootstrapStatus.ready) {
+        setLoading(false);
+        return;
+      }
       if (!prId) {
         setProject(null);
         setStages([]);
@@ -1026,7 +1049,7 @@ export default function AppPage() {
     return () => {
       mounted = false;
     };
-  }, [prId]);
+  }, [prId, bootstrapStatus.ready]);
 
   useEffect(() => {
     const sessionId = iframeSession?.sessionId;
@@ -1229,8 +1252,12 @@ export default function AppPage() {
   async function refreshWriteAuthStatusFromApp() {
     setWriteAuthBusy(true);
     try {
-      const status = await fetchAfasWriteAuthStatus();
+      const [status, nextBootstrapStatus] = await Promise.all([
+        fetchAfasWriteAuthStatus(),
+        fetchBootstrapStatus().catch(() => undefined),
+      ]);
       setWriteAuthStatus(status);
+      if (nextBootstrapStatus) setBootstrapStatus(nextBootstrapStatus);
     } catch (error) {
       setWriteAuthStatus({
         ...DEFAULT_WRITE_AUTH_STATUS,
@@ -1240,6 +1267,10 @@ export default function AppPage() {
     } finally {
       setWriteAuthBusy(false);
     }
+  }
+
+  function refreshAppView() {
+    setRefreshVersion((current) => current + 1);
   }
 
   const hasVisibleNoPhaseLines = useMemo(
@@ -4260,7 +4291,29 @@ export default function AppPage() {
     return 'md:grid-cols-1';
   }, [showPhasePanel, showLibraryPanel, isPhasePanelCollapsed, isLibraryPanelCollapsed]);
 
-  const requiresWriteAuthOverlay = Boolean(project && settings.writeAuthMode === 'oauth_user' && !writeAuthStatus.authenticated);
+  const showOverlay = !loading && !bootstrapStatus.ready;
+  const canOpenSettings = bootstrapStatus.settingsAllowed;
+  const canStartOauth =
+    bootstrapStatus.writeAuthMode === 'oauth_user' &&
+    bootstrapStatus.oauthConfigured &&
+    (bootstrapStatus.hasIframeSession || Boolean(iframeSession?.sessionId)) &&
+    !writeAuthBusy;
+  const overlayMessage =
+    writeAuthBusy
+      ? 'Aanmelden via AFAS is bezig. Wacht even terwijl we controleren of de sessie correct is gekoppeld.'
+      : bootstrapStatus.writeAuthMode === 'oauth_user' && !bootstrapStatus.oauthConfigured
+        ? 'OAuth namens gebruiker staat aan, maar de basisconfiguratie is nog niet afgerond. Open Instellingen, sla eerst het omgevingsnummer en omgevingstype op en meld daarna aan via AFAS.'
+        : bootstrapStatus.writeAuthMode === 'oauth_user' && !bootstrapStatus.oauthAuthenticated
+          ? 'De basisconfiguratie staat goed. Meld je nu aan via AFAS om deze app namens de huidige gebruiker te gebruiken.'
+          : bootstrapStatus.message;
+  const overlayTitle =
+    bootstrapStatus.blockReason === 'iframe_required'
+      ? 'Open deze app vanuit AFAS'
+      : bootstrapStatus.blockReason === 'oauth_login_required'
+        ? 'Aanmelden vereist'
+        : 'Configuratie vereist';
+
+  const requiresWriteAuthOverlay = !showOverlay && Boolean(project && settings.writeAuthMode === 'oauth_user' && !writeAuthStatus.authenticated);
   const authFlowSteps = [
     { label: 'Stap 1', title: 'OAuth-configuratie actief', done: writeAuthStatus.oauthConfigured },
     { label: 'Stap 2', title: 'Aanmelden via AFAS', done: writeAuthStatus.authenticated },
@@ -4976,6 +5029,43 @@ export default function AppPage() {
             </div>
           </div>
         </div>
+      ) : null}
+
+      {showOverlay ? (
+        <BlockingOverlay
+          title={overlayTitle}
+          message={overlayMessage}
+          actions={
+            <>
+              <button
+                type="button"
+                onClick={refreshAppView}
+                disabled={writeAuthBusy}
+                className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                Opnieuw controleren
+              </button>
+              {canOpenSettings ? (
+                <NavLink
+                  to="/settings/advanced"
+                  className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
+                >
+                  Naar instellingen
+                </NavLink>
+              ) : null}
+              {bootstrapStatus.writeAuthMode === 'oauth_user' ? (
+                <button
+                  type="button"
+                  onClick={() => void startAfasOAuthFromApp()}
+                  disabled={!canStartOauth}
+                  className="rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-brand-700 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {writeAuthBusy ? 'Aanmelden bezig...' : 'Aanmelden via AFAS'}
+                </button>
+              ) : null}
+            </>
+          }
+        />
       ) : null}
     </div>
   );

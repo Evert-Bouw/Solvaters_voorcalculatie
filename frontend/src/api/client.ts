@@ -14,10 +14,24 @@ import {
   SaveQuotationLinesPayload,
   Settings,
 } from '../types';
+import { BootstrapStatus } from '../core/types';
 
 const settingsCacheKey = 'voorcalc_app_settings';
 const appSessionCacheKey = 'voorcalc_app_session_id';
 const apiBase = (import.meta.env.VITE_API_BASE_URL as string | undefined)?.trim() || '';
+export const DEFAULT_BOOTSTRAP_STATUS: BootstrapStatus = {
+  ready: false,
+  writeAuthMode: 'classic',
+  blockReason: 'iframe_required',
+  message: '',
+  hasIframeSession: false,
+  classicConfigured: false,
+  oauthConfigured: false,
+  oauthAuthenticated: false,
+  settingsAllowed: false,
+  bootstrapRequired: false,
+  bootstrapAllowed: false,
+};
 const allMarkups: Settings['markupOrder'] = ['M1', 'M2', 'M3', 'M4', 'M5', 'M6', 'M7', 'M8', 'M9', 'M10'];
 const legacyMarkupMap: Record<string, Settings['markupOrder'][number]> = {
   UITVAL: 'M1',
@@ -301,6 +315,7 @@ export async function saveSettings(settings: Settings): Promise<Settings> {
 export const fetchAfasConnectionConfig = () => api<AfasConnectionConfig>('/api/afas/config');
 
 export const fetchAfasWriteAuthStatus = () => api<AfasWriteAuthStatus>('/api/afas/write-auth-status');
+export const fetchBootstrapStatus = () => api<BootstrapStatus>('/api/bootstrap/status');
 
 export const saveAfasConnectionConfig = (input: AfasConnectionInput) =>
   api<AfasConnectionConfig>('/api/afas/config', {
