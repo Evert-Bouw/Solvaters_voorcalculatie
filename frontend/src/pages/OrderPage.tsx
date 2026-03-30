@@ -943,7 +943,7 @@ export default function OrderPage() {
           <NavLink to="/" end className={({ isActive }) => navLinkClassName(isActive)}>Voorcalculatie</NavLink>
           <NavLink to="/bestellen" className={({ isActive }) => navLinkClassName(isActive)}>Bestellen</NavLink>
           <button type="button" className="rounded bg-slate-200 px-3 py-2 text-xs font-medium text-slate-700 hover:bg-slate-300" onClick={() => void toggleFullscreen()} title="Fullscreen" aria-label="Fullscreen">⛶</button>
-          <NavLink to="/settings" className={({ isActive }) => navLinkClassName(isActive)} title="Instellingen" aria-label="Instellingen">⚙</NavLink>
+          <NavLink to="/settings/advanced" className={({ isActive }) => navLinkClassName(isActive)} title="Instellingen" aria-label="Instellingen">⚙</NavLink>
         </nav>
       </header>
 

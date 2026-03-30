@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { NavLink } from 'react-router-dom';
 import {
   DEFAULT_BOOTSTRAP_STATUS,
@@ -11,7 +12,6 @@ import {
 import { DEFAULT_CORE_SETTINGS } from '../../core/settings';
 import { BootstrapStatus } from '../../core/types';
 import { applyThemeColors } from '../../core/utils/theme';
-import BlockingOverlay from '../../core/components/BlockingOverlay';
 import FullscreenToggleButton from '../../core/components/FullscreenToggleButton';
 import RefreshButton from '../../core/components/RefreshButton';
 import AppDebugSection from '../settings/AppDebugSection';
@@ -23,6 +23,31 @@ function navLinkClassName(isActive: boolean) {
   return `rounded px-3 py-2 text-xs font-medium transition ${
     isActive ? 'bg-brand-600 text-white' : 'bg-slate-200 text-slate-700 hover:bg-slate-300'
   }`;
+}
+
+function AppSettingsOverlay({
+  title,
+  message,
+  actions,
+}: {
+  title: string;
+  message: string;
+  actions?: React.ReactNode;
+}) {
+  if (typeof document === 'undefined') return null;
+  return createPortal(
+    <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-slate-950/55 p-6 backdrop-blur-sm">
+      <div className="w-full max-w-xl rounded-3xl border border-white/20 bg-white p-8 shadow-2xl">
+        <div className="space-y-3">
+          <p className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">Toegang geblokkeerd</p>
+          <h2 className="text-2xl font-semibold text-slate-900">{title}</h2>
+          <p className="text-sm leading-6 text-slate-600">{message}</p>
+        </div>
+        {actions ? <div className="mt-6 flex flex-wrap gap-3">{actions}</div> : null}
+      </div>
+    </div>,
+    document.body,
+  );
 }
 
 export default function AppSettingsPage() {
@@ -124,7 +149,7 @@ export default function AppSettingsPage() {
             <NavLink to="/" end className={({ isActive }) => navLinkClassName(isActive)}>
               App
             </NavLink>
-            <NavLink to="/settings" end className={({ isActive }) => navLinkClassName(isActive)}>
+            <NavLink to="/settings/app" end className={({ isActive }) => navLinkClassName(isActive)}>
               Instellingen
             </NavLink>
             <NavLink to="/settings/advanced" className={({ isActive }) => navLinkClassName(isActive)}>
@@ -200,7 +225,7 @@ export default function AppSettingsPage() {
       </main>
 
       {showOverlay ? (
-        <BlockingOverlay
+        <AppSettingsOverlay
           title={overlayTitle}
           message={bootstrapStatus.message}
           actions={

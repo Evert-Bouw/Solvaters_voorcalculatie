@@ -107,7 +107,13 @@ async function api<T>(url: string, options?: RequestInit): Promise<T> {
     },
   });
   if (!res.ok) {
-    const message = await res.text();
+    const rawMessage = await res.text();
+    const message =
+      rawMessage === 'AFAS_ENVIRONMENT_ID ontbreekt.'
+        ? 'AFAS-omgeving is nog niet ingesteld. Open Geavanceerde instellingen en vul eerst het omgevingsnummer in.'
+        : rawMessage === 'AFAS_TOKEN ontbreekt.'
+          ? 'AFAS-token ontbreekt. Open Geavanceerde instellingen en sla daar de AFAS-verbinding opnieuw op.'
+          : rawMessage;
     throw new Error(message || `Request failed: ${res.status}`);
   }
   return res.json();

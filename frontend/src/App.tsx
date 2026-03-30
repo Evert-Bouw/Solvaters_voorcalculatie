@@ -8,7 +8,8 @@ export default function App() {
   return (
     <Routes>
       <Route path="/" element={<AppPage />} />
-      <Route path="/settings" element={<AppSettingsPage />} />
+      <Route path="/settings" element={<Navigate to="/settings/advanced" replace />} />
+      <Route path="/settings/app" element={<AppSettingsPage />} />
       <Route path="/settings/advanced" element={<SettingsPage />} />
       <Route path="/bestellen" element={<OrderPage />} />
       <Route path="*" element={<Navigate to="/" replace />} />

@@ -4366,7 +4366,7 @@ export default function AppPage() {
                 {writeAuthBusy ? 'Bezig...' : 'Aanmelden via AFAS'}
               </button>
               <NavLink
-                to="/settings"
+                to="/settings/advanced"
                 className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
               >
                 Naar instellingen
@@ -4417,7 +4417,7 @@ export default function AppPage() {
           <NavLink to="/" end className={({ isActive }) => navLinkClassName(isActive)}>Voorcalculatie</NavLink>
           <NavLink to="/bestellen" className={({ isActive }) => navLinkClassName(isActive)}>Bestellen</NavLink>
           <button type="button" className="rounded bg-slate-200 px-3 py-2 text-xs font-medium text-slate-700 hover:bg-slate-300" onClick={() => void toggleFullscreen()} title="Fullscreen" aria-label="Fullscreen">⛶</button>
-          <NavLink to="/settings" className={({ isActive }) => navLinkClassName(isActive)} title="Instellingen" aria-label="Instellingen">⚙</NavLink>
+          <NavLink to="/settings/advanced" className={({ isActive }) => navLinkClassName(isActive)} title="Instellingen" aria-label="Instellingen">⚙</NavLink>
         </nav>
       </header>
       <div className={`grid min-h-0 flex-1 gap-3 ${layoutGridClass}`}>
