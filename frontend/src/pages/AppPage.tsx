@@ -1273,6 +1273,10 @@ export default function AppPage() {
     setRefreshVersion((current) => current + 1);
   }
 
+  async function openOauthLogin() {
+    await startAfasOAuthFromApp();
+  }
+
   const hasVisibleNoPhaseLines = useMemo(
     () =>
       draftLines.some(
@@ -4292,19 +4296,21 @@ export default function AppPage() {
   }, [showPhasePanel, showLibraryPanel, isPhasePanelCollapsed, isLibraryPanelCollapsed]);
 
   const showOverlay = !loading && !bootstrapStatus.ready;
+  const hasActiveIframeSession = Boolean(iframeSession?.sessionId);
+  const oauthLoginBusy = writeAuthBusy;
   const canOpenSettings = bootstrapStatus.settingsAllowed;
   const canStartOauth =
     bootstrapStatus.writeAuthMode === 'oauth_user' &&
     bootstrapStatus.oauthConfigured &&
-    (bootstrapStatus.hasIframeSession || Boolean(iframeSession?.sessionId)) &&
-    !writeAuthBusy;
+    (bootstrapStatus.hasIframeSession || hasActiveIframeSession) &&
+    !oauthLoginBusy;
   const overlayMessage =
-    writeAuthBusy
+    oauthLoginBusy
       ? 'Aanmelden via AFAS is bezig. Wacht even terwijl we controleren of de sessie correct is gekoppeld.'
       : bootstrapStatus.writeAuthMode === 'oauth_user' && !bootstrapStatus.oauthConfigured
         ? 'OAuth namens gebruiker staat aan, maar de basisconfiguratie is nog niet afgerond. Open Instellingen, sla eerst het omgevingsnummer en omgevingstype op en meld daarna aan via AFAS.'
         : bootstrapStatus.writeAuthMode === 'oauth_user' && !bootstrapStatus.oauthAuthenticated
-          ? 'De basisconfiguratie staat goed. Meld je nu aan via AFAS om deze app namens de huidige gebruiker te gebruiken.'
+          ? 'De basisconfiguratie staat goed. Meld je nu aan via AFAS om deze planner namens de huidige gebruiker te gebruiken.'
           : bootstrapStatus.message;
   const overlayTitle =
     bootstrapStatus.blockReason === 'iframe_required'
@@ -5040,14 +5046,14 @@ export default function AppPage() {
               <button
                 type="button"
                 onClick={refreshAppView}
-                disabled={writeAuthBusy}
+                disabled={oauthLoginBusy}
                 className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
               >
                 Opnieuw controleren
               </button>
               {canOpenSettings ? (
                 <NavLink
-                  to="/settings/advanced"
+                  to="/settings"
                   className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
                 >
                   Naar instellingen
@@ -5056,11 +5062,11 @@ export default function AppPage() {
               {bootstrapStatus.writeAuthMode === 'oauth_user' ? (
                 <button
                   type="button"
-                  onClick={() => void startAfasOAuthFromApp()}
+                  onClick={() => void openOauthLogin()}
                   disabled={!canStartOauth}
                   className="rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-brand-700 disabled:cursor-not-allowed disabled:opacity-60"
                 >
-                  {writeAuthBusy ? 'Aanmelden bezig...' : 'Aanmelden via AFAS'}
+                  {oauthLoginBusy ? 'Aanmelden bezig...' : 'Aanmelden via AFAS'}
                 </button>
               ) : null}
             </>
