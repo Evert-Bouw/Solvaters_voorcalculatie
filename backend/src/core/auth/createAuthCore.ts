@@ -516,6 +516,24 @@ export function createAuthCore(deps: AuthCoreDeps) {
     return deps.getBootstrapAdminUserIds().includes(normalizedUserId);
   }
 
+  async function resolveBlockedSettingsAccess(args: {
+    req: express.Request;
+    hasIframeSession: boolean;
+    bootstrapAllowed: boolean;
+  }) {
+    if (args.bootstrapAllowed) return true;
+    if (!args.hasIframeSession) return false;
+
+    const user = await getAfasUserByIframeSession(args.req);
+    if (!user?.userId) return false;
+
+    try {
+      return await userHasAfasAdminRole(user.userId, { type: 'classic' });
+    } catch {
+      return false;
+    }
+  }
+
   async function buildBootstrapStatus(req: express.Request): Promise<BootstrapStatus> {
     const writeAuthStatus = await buildAfasWriteAuthStatus(req);
     const iframeSession = await getCurrentIframeSession(req, { touch: true });
@@ -551,6 +569,11 @@ export function createAuthCore(deps: AuthCoreDeps) {
     });
 
     if (!hasIframeSession) {
+      const settingsAllowed = await resolveBlockedSettingsAccess({
+        req,
+        hasIframeSession: false,
+        bootstrapAllowed,
+      });
       return {
         ready: false,
         writeAuthMode,
@@ -560,13 +583,18 @@ export function createAuthCore(deps: AuthCoreDeps) {
         classicConfigured,
         oauthConfigured,
         oauthAuthenticated,
-        settingsAllowed: bootstrapAllowed,
+        settingsAllowed,
         bootstrapRequired,
         bootstrapAllowed,
       };
     }
 
     if (bootstrapRequired) {
+      const settingsAllowed = await resolveBlockedSettingsAccess({
+        req,
+        hasIframeSession: true,
+        bootstrapAllowed,
+      });
       return {
         ready: false,
         writeAuthMode,
@@ -580,13 +608,18 @@ export function createAuthCore(deps: AuthCoreDeps) {
         classicConfigured,
         oauthConfigured,
         oauthAuthenticated,
-        settingsAllowed: bootstrapAllowed,
+        settingsAllowed,
         bootstrapRequired: true,
         bootstrapAllowed,
       };
     }
 
     if (writeAuthMode === 'oauth_user' && !oauthAuthenticated) {
+      const settingsAllowed = await resolveBlockedSettingsAccess({
+        req,
+        hasIframeSession: true,
+        bootstrapAllowed,
+      });
       return {
         ready: false,
         writeAuthMode,
@@ -597,7 +630,7 @@ export function createAuthCore(deps: AuthCoreDeps) {
         classicConfigured,
         oauthConfigured,
         oauthAuthenticated: false,
-        settingsAllowed: bootstrapAllowed,
+        settingsAllowed,
         bootstrapRequired: false,
         bootstrapAllowed,
       };

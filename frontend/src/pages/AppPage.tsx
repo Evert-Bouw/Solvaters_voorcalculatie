@@ -26,7 +26,6 @@ import {
   updateProjectStage,
   updateQuotation,
 } from '../api/client';
-import BlockingOverlay from '../core/components/BlockingOverlay';
 import { BootstrapStatus } from '../core/types';
 import {
   CostFormulaOperator,
@@ -4295,47 +4294,6 @@ export default function AppPage() {
     return 'md:grid-cols-1';
   }, [showPhasePanel, showLibraryPanel, isPhasePanelCollapsed, isLibraryPanelCollapsed]);
 
-  const showOverlay = !loading && !bootstrapStatus.ready;
-  const hasActiveIframeSession = Boolean(iframeSession?.sessionId);
-  const oauthLoginBusy = writeAuthBusy;
-  const canOpenSettings = bootstrapStatus.settingsAllowed;
-  const canStartOauth =
-    bootstrapStatus.writeAuthMode === 'oauth_user' &&
-    bootstrapStatus.oauthConfigured &&
-    (bootstrapStatus.hasIframeSession || hasActiveIframeSession) &&
-    !oauthLoginBusy;
-  const overlayMessage =
-    oauthLoginBusy
-      ? 'Aanmelden via AFAS is bezig. Wacht even terwijl we controleren of de sessie correct is gekoppeld.'
-      : bootstrapStatus.writeAuthMode === 'oauth_user' && !bootstrapStatus.oauthConfigured
-        ? 'OAuth namens gebruiker staat aan, maar de basisconfiguratie is nog niet afgerond. Open Instellingen, sla eerst het omgevingsnummer en omgevingstype op en meld daarna aan via AFAS.'
-        : bootstrapStatus.writeAuthMode === 'oauth_user' && !bootstrapStatus.oauthAuthenticated
-          ? 'De basisconfiguratie staat goed. Meld je nu aan via AFAS om deze planner namens de huidige gebruiker te gebruiken.'
-          : bootstrapStatus.message;
-  const overlayTitle =
-    bootstrapStatus.blockReason === 'iframe_required'
-      ? 'Open deze app vanuit AFAS'
-      : bootstrapStatus.blockReason === 'oauth_login_required'
-        ? 'Aanmelden vereist'
-        : 'Configuratie vereist';
-
-  const requiresWriteAuthOverlay = !showOverlay && Boolean(project && settings.writeAuthMode === 'oauth_user' && !writeAuthStatus.authenticated);
-  const authFlowSteps = [
-    { label: 'Stap 1', title: 'OAuth-configuratie actief', done: writeAuthStatus.oauthConfigured },
-    { label: 'Stap 2', title: 'Aanmelden via AFAS', done: writeAuthStatus.authenticated },
-  ];
-  const nextAuthAction = !writeAuthStatus.oauthConfigured
-    ? 'Rond eerst de OAuth-configuratie af in instellingen.'
-    : !writeAuthStatus.authenticated
-      ? 'Meld je aan via AFAS om wijzigingen te kunnen opslaan.'
-      : 'De OAuth-sessie is actief. Je kunt direct verder.';
-  const writeAuthOverlayTitle = !writeAuthStatus.oauthConfigured ? 'OAuth-configuratie ontbreekt' : 'Aanmelden vereist';
-  const writeAuthOverlayMessage =
-    writeAuthStatus.message ||
-    (!writeAuthStatus.oauthConfigured
-      ? 'Deze app staat in OAuth-modus, maar de AFAS OAuth-configuratie is nog niet compleet.'
-      : 'Deze app staat in OAuth-modus. Zonder actieve AFAS-sessie kunnen wijzigingen niet worden opgeslagen.');
-
   if (loading) return <div className="p-6 text-sm text-slate-700">Laden...</div>;
 
   return (
@@ -4359,79 +4317,6 @@ export default function AppPage() {
               </div>
             </div>
           )}
-        </div>
-      ) : null}
-      {requiresWriteAuthOverlay ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/55 p-6 backdrop-blur-sm">
-          <div className="w-full max-w-2xl rounded-3xl border border-white/20 bg-white p-8 shadow-2xl">
-            <div className="space-y-3">
-              <p className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">AFAS-authenticatie</p>
-              <h2 className="text-2xl font-semibold text-slate-900">{writeAuthOverlayTitle}</h2>
-              <p className="text-sm leading-6 text-slate-600">{writeAuthOverlayMessage}</p>
-            </div>
-
-            <div className="mt-6 rounded-2xl border border-slate-200 bg-slate-50 p-4">
-              <div className="flex flex-wrap gap-3">
-                {authFlowSteps.map((step) => (
-                  <div
-                    key={step.label}
-                    className={`rounded-xl px-3 py-2 text-sm ${
-                      step.done ? 'bg-emerald-100 text-emerald-700' : 'bg-white text-slate-700'
-                    }`}
-                  >
-                    <span className="font-semibold">{step.label}</span> {step.title}
-                  </div>
-                ))}
-              </div>
-              <p className="mt-3 text-sm text-slate-600">{nextAuthAction}</p>
-            </div>
-
-            <div className="mt-4 grid gap-3 md:grid-cols-3">
-              <div className="rounded-2xl border border-slate-200 bg-white p-4">
-                <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">Project</p>
-                <p className="mt-2 text-sm font-medium text-slate-900">{project?.id || '-'}</p>
-                <p className="mt-1 text-sm text-slate-600">{project?.name || 'Nog geen project geselecteerd'}</p>
-              </div>
-              <div className="rounded-2xl border border-slate-200 bg-white p-4">
-                <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">Gebruiker</p>
-                <p className="mt-2 text-sm font-medium text-slate-900">
-                  {writeAuthStatus.displayName || iframeSession?.displayName || iframeSession?.userId || 'Onbekend'}
-                </p>
-                <p className="mt-1 text-sm text-slate-600">
-                  {iframeSession?.sessionId ? 'iFrame-sessie gevonden' : 'Nog geen iFrame-sessieprofiel'}
-                </p>
-              </div>
-              <div className="rounded-2xl border border-slate-200 bg-white p-4">
-                <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">Volgende stap</p>
-                <p className="mt-2 text-sm font-medium text-slate-900">{nextAuthAction}</p>
-              </div>
-            </div>
-
-            <div className="mt-6 flex flex-wrap gap-3">
-              <button
-                type="button"
-                onClick={() => void refreshWriteAuthStatusFromApp()}
-                disabled={writeAuthBusy}
-                className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                Opnieuw controleren
-              </button>
-              <button
-                type="button"
-                className="rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-brand-700 disabled:cursor-not-allowed disabled:opacity-60"
-                onClick={() => void startAfasOAuthFromApp()}
-                disabled={writeAuthBusy || !writeAuthStatus.oauthConfigured}
-              >
-                {writeAuthBusy ? 'Bezig...' : 'Aanmelden via AFAS'}
-              </button>
-              <NavLink
-                to="/settings/advanced"
-                className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
-              >
-                Naar instellingen
-              </NavLink>
-            </div>
-          </div>
         </div>
       ) : null}
       <header className="mb-3 flex flex-none flex-wrap items-center justify-between gap-2 rounded-lg bg-white px-4 py-3 shadow-sm">
@@ -5037,42 +4922,6 @@ export default function AppPage() {
         </div>
       ) : null}
 
-      {showOverlay ? (
-        <BlockingOverlay
-          title={overlayTitle}
-          message={overlayMessage}
-          actions={
-            <>
-              <button
-                type="button"
-                onClick={refreshAppView}
-                disabled={oauthLoginBusy}
-                className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                Opnieuw controleren
-              </button>
-              {canOpenSettings ? (
-                <NavLink
-                  to="/settings"
-                  className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
-                >
-                  Naar instellingen
-                </NavLink>
-              ) : null}
-              {bootstrapStatus.writeAuthMode === 'oauth_user' ? (
-                <button
-                  type="button"
-                  onClick={() => void openOauthLogin()}
-                  disabled={!canStartOauth}
-                  className="rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-brand-700 disabled:cursor-not-allowed disabled:opacity-60"
-                >
-                  {oauthLoginBusy ? 'Aanmelden bezig...' : 'Aanmelden via AFAS'}
-                </button>
-              ) : null}
-            </>
-          }
-        />
-      ) : null}
     </div>
   );
 }

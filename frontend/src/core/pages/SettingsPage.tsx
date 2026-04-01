@@ -1,4 +1,4 @@
-import { ReactNode, useEffect, useRef, useState } from 'react';
+import { ReactNode, useEffect, useState } from 'react';
 import { NavLink } from 'react-router-dom';
 import {
   DEFAULT_AFAS_CONNECTION,
@@ -10,12 +10,10 @@ import {
   fetchAfasConnectionConfig,
   fetchAfasGetConnectors,
   fetchAfasUpdateConnectors,
-  fetchAfasOAuthStartUrl,
   fetchAfasWriteAuthStatus,
   fetchContextCatalog,
   fetchCoreSettings,
   fetchIframeSessionProfile,
-  isTrustedPopupMessageOrigin,
   logoutAfasOAuthSession,
   saveAfasConnectionConfig,
   saveAppSettings,
@@ -41,10 +39,10 @@ import {
 import { AppSettings } from '../../app/settings/types';
 import { DEFAULT_APP_SETTINGS, normalizeAppSettings } from '../../app/settings/defaults';
 import { applyThemeColors } from '../utils/theme';
-import BlockingOverlay from '../components/BlockingOverlay';
 import FullscreenToggleButton from '../components/FullscreenToggleButton';
 import RefreshButton from '../components/RefreshButton';
 import ToggleSection from '../components/ToggleSection';
+import { useAfasOauthPopup } from '../hooks/useAfasOauthPopup';
 
 function navLinkClassName(isActive: boolean) {
   return `rounded px-3 py-2 text-xs font-medium transition ${
@@ -156,9 +154,6 @@ const THEME_COLOR_LABELS: Record<keyof ThemeColors, { label: string; description
 };
 
 export default function SettingsPage() {
-  const oauthPopupPollRef = useRef<number | null>(null);
-  const oauthPopupTimeoutRef = useRef<number | null>(null);
-  const oauthPopupMessageReceivedRef = useRef(false);
   const [debugLines, setDebugLines] = useState<string[]>([]);
   const [settings, setSettings] = useState<CoreSettings>(DEFAULT_CORE_SETTINGS);
   const [appSettings, setAppSettings] = useState<AppSettings>(DEFAULT_APP_SETTINGS);
@@ -205,19 +200,7 @@ export default function SettingsPage() {
     setDebugLines((current) => [`[${timestamp}] ${message}`, ...current].slice(0, 80));
   }
 
-  function clearOauthPopupWatchers() {
-    if (oauthPopupPollRef.current !== null) {
-      window.clearInterval(oauthPopupPollRef.current);
-      oauthPopupPollRef.current = null;
-    }
-    if (oauthPopupTimeoutRef.current !== null) {
-      window.clearTimeout(oauthPopupTimeoutRef.current);
-      oauthPopupTimeoutRef.current = null;
-    }
-  }
-
   async function refreshAfterPopupWithoutMessage(reason: string) {
-    setWriteAuthBusy(false);
     setAfasStatus(reason);
     pushDebugLine(reason);
     await refreshWriteAuthStatus();
@@ -323,33 +306,6 @@ export default function SettingsPage() {
   }, [refreshVersion]);
 
   useEffect(() => {
-    function onMessage(event: MessageEvent) {
-      const payload = event.data as { type?: string; ok?: boolean; message?: string } | null;
-      if (!payload || payload.type !== 'afas-oauth-complete') return;
-      if (!isTrustedPopupMessageOrigin(event.origin)) {
-        pushDebugLine(`popup OAuth-bericht genegeerd: origin=${event.origin || '-'}`);
-        return;
-      }
-      oauthPopupMessageReceivedRef.current = true;
-      clearOauthPopupWatchers();
-      setWriteAuthBusy(false);
-      setAfasStatus(payload.message ?? '');
-      pushDebugLine(`popup bericht: ok=${String(payload.ok)} message=${payload.message || '-'}`);
-      if (payload.ok) {
-        void refreshAfterOauthSuccess();
-        return;
-      }
-      void Promise.all([refreshWriteAuthStatus(), fetchBootstrapStatus().then(setBootstrapStatus).catch(() => undefined)]);
-    }
-
-    window.addEventListener('message', onMessage);
-    return () => {
-      window.removeEventListener('message', onMessage);
-      clearOauthPopupWatchers();
-    };
-  }, []);
-
-  useEffect(() => {
     applyThemeColors({ core: settings });
   }, [settings.uiThemeMode, settings.uiColors, settings]);
 
@@ -453,7 +409,7 @@ export default function SettingsPage() {
       setAppSettings(savedAppSettings);
       applyThemeColors({ core: savedCoreSettings });
       setSettingsStatus('Geavanceerde instellingen opgeslagen.');
-      await refreshWriteAuthStatus();
+      await Promise.all([refreshWriteAuthStatus(), fetchBootstrapStatus().then(setBootstrapStatus).catch(() => undefined)]);
     } catch (error) {
       setSettingsStatus((error as Error).message);
     } finally {
@@ -490,7 +446,7 @@ export default function SettingsPage() {
           : 'AFAS-instellingen opgeslagen. OAuth namens gebruiker is actief en het classic token is verwijderd.',
       );
       pushDebugLine('AFAS-instellingen opgeslagen.');
-      await refreshWriteAuthStatus();
+      await Promise.all([refreshWriteAuthStatus(), fetchBootstrapStatus().then(setBootstrapStatus).catch(() => undefined)]);
     } catch (error) {
       setAfasStatus((error as Error).message);
       pushDebugLine(`AFAS opslaan fout: ${(error as Error).message}`);
@@ -499,91 +455,35 @@ export default function SettingsPage() {
     }
   }
 
-  async function onStartOauth() {
-    setWriteAuthBusy(true);
-    setAfasStatus('OAuth-login gestart...');
-    pushDebugLine('OAuth-login gestart vanuit instellingen.');
-    try {
-      const iframeResult = await fetchIframeSessionProfile();
-      setIframeSessionProfile(iframeResult.session);
-      setIframeSessionStatus('');
-      pushDebugLine(`OAuth preflight iframe ok: ${iframeResult.session.userId} / ${iframeResult.session.sessionId}`);
-      const url = await fetchAfasOAuthStartUrl({ iframeSessionId: iframeResult.session.sessionId });
-      pushDebugLine(`OAuth start-url ontvangen.`);
-      clearOauthPopupWatchers();
-      oauthPopupMessageReceivedRef.current = false;
-      const popup = window.open(url, `afas-oauth-${Date.now()}`, 'popup,width=560,height=760');
-      if (!popup) {
-        await refreshAfterPopupWithoutMessage('OAuth-popup is geblokkeerd door de browser.');
-        return;
-      }
-      pushDebugLine('OAuth-popup geopend.');
-      oauthPopupPollRef.current = window.setInterval(() => {
-        if (popup.closed && !oauthPopupMessageReceivedRef.current) {
-          clearOauthPopupWatchers();
-          void refreshAfterPopupWithoutMessage('OAuth-venster gesloten zonder terugmelding.');
-        }
-      }, 400);
-      oauthPopupTimeoutRef.current = window.setTimeout(() => {
-        if (!oauthPopupMessageReceivedRef.current) {
-          clearOauthPopupWatchers();
-          try {
-            popup.close();
-          } catch {
-            // Ignore close errors from browser popup restrictions.
-          }
-          void refreshAfterPopupWithoutMessage('OAuth-login timed out zonder bevestiging uit AFAS.');
-        }
-      }, 45000);
-    } catch (error) {
-      clearOauthPopupWatchers();
-      oauthPopupMessageReceivedRef.current = false;
-      setWriteAuthBusy(false);
-      setAfasStatus((error as Error).message || 'AFAS OAuth-login kon niet worden gestart.');
-      pushDebugLine(`OAuth start fout: ${(error as Error).message}`);
-      try {
-        const iframeResult = await fetchIframeSessionProfile();
-        setIframeSessionProfile(iframeResult.session);
-        setIframeSessionStatus('');
-        pushDebugLine(`Post-error iframe ok: ${iframeResult.session.userId} / ${iframeResult.session.sessionId}`);
-      } catch (iframeError) {
-        setIframeSessionProfile(null);
-        setIframeSessionStatus((iframeError as Error).message);
-        pushDebugLine(`Post-error iframe fout: ${(iframeError as Error).message}`);
-      }
-      await refreshWriteAuthStatus();
-      try {
-        const nextBootstrapStatus = await fetchBootstrapStatus();
-        setBootstrapStatus(nextBootstrapStatus);
-        pushDebugLine(
-          `Post-error bootstrapStatus: ready=${String(nextBootstrapStatus.ready)} settingsAllowed=${String(
-            nextBootstrapStatus.settingsAllowed,
-          )} hasIframe=${String(nextBootstrapStatus.hasIframeSession)} oauthAuthenticated=${String(
-            nextBootstrapStatus.oauthAuthenticated,
-          )}`,
-        );
-      } catch {
-        // Keep current status if refresh fails.
-      }
-    }
-  }
-
-  function refreshOverlayStatus() {
-    setRefreshVersion((current) => current + 1);
-  }
-
   async function onLogoutOauth() {
     setWriteAuthBusy(true);
     try {
       await logoutAfasOAuthSession();
       setAfasStatus('OAuth-sessie afgemeld.');
-      await refreshWriteAuthStatus();
+      await Promise.all([refreshWriteAuthStatus(), fetchBootstrapStatus().then(setBootstrapStatus).catch(() => undefined)]);
     } catch (error) {
       setAfasStatus((error as Error).message);
     } finally {
       setWriteAuthBusy(false);
     }
   }
+
+  const oauthLogin = useAfasOauthPopup({
+    onStatusChange: setAfasStatus,
+    onIframeSessionChange: (session) => {
+      if (session) {
+        setIframeSessionProfile(session);
+        setIframeSessionStatus('');
+        return;
+      }
+      setIframeSessionProfile(null);
+    },
+    onDebugLine: pushDebugLine,
+    onSuccess: refreshAfterOauthSuccess,
+    onFailure: async (message) => {
+      await refreshAfterPopupWithoutMessage(message);
+    },
+  });
 
   function updateContextEntity(patch: Partial<ContextEntitySettings>) {
     setSettings((current) => ({
@@ -656,12 +556,12 @@ export default function SettingsPage() {
     setRefreshVersion((current) => current + 1);
   }
 
-  const showOverlay = !loading && !bootstrapStatus.settingsAllowed;
   const hasActiveIframeSession = Boolean(iframeSessionProfile?.sessionId) || bootstrapStatus.hasIframeSession;
   const canStartOauth =
     bootstrapStatus.writeAuthMode === 'oauth_user' &&
     writeAuthStatus.oauthConfigured &&
-    hasActiveIframeSession;
+    hasActiveIframeSession &&
+    !oauthLogin.busy;
   const needsOAuthConfiguration =
     bootstrapStatus.writeAuthMode === 'oauth_user' && !writeAuthStatus.oauthConfigured;
   const needsOAuthLogin =
@@ -704,13 +604,6 @@ export default function SettingsPage() {
     { label: 'blockReason', value: bootstrapStatus.blockReason || '-' },
     { label: 'afasStatus', value: afasStatus || '-' },
   ];
-  const overlayTitle =
-    bootstrapStatus.blockReason === 'iframe_required'
-      ? 'Open deze app vanuit AFAS'
-      : bootstrapStatus.blockReason === 'oauth_login_required'
-        ? 'Aanmelden vereist'
-        : 'Geen toegang tot instellingen';
-
   return (
     <div className="min-h-screen bg-slate-100 text-slate-900">
       <header className="border-b border-slate-200 bg-white/90 backdrop-blur">
@@ -1264,11 +1157,15 @@ export default function SettingsPage() {
             <div className="mt-4 flex flex-wrap gap-3">
               <button
                 type="button"
-                onClick={() => void onStartOauth()}
-                disabled={writeAuthBusy || !canStartOauth}
+                onClick={() => void oauthLogin.startLogin()}
+                disabled={writeAuthBusy || oauthLogin.busy || !canStartOauth}
                 className="rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-brand-700 disabled:cursor-not-allowed disabled:opacity-60"
               >
-                {needsOAuthConfiguration ? 'Sla eerst stap 1 op' : 'Stap 2: aanmelden via AFAS'}
+                {oauthLogin.busy
+                  ? 'Aanmelden bezig...'
+                  : needsOAuthConfiguration
+                    ? 'Sla eerst stap 1 op'
+                    : 'Stap 2: aanmelden via AFAS'}
               </button>
               {!canStartOauth ? (
                 <p className="self-center text-sm text-slate-600">
@@ -1282,7 +1179,7 @@ export default function SettingsPage() {
               <button
                 type="button"
                 onClick={() => void onLogoutOauth()}
-                disabled={writeAuthBusy || !writeAuthStatus.authenticated}
+                disabled={writeAuthBusy || oauthLogin.busy || !writeAuthStatus.authenticated}
                 className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
               >
                 Afmelden
@@ -1417,33 +1314,6 @@ export default function SettingsPage() {
           </div>
         </ToggleSection>
       </main>
-      {showOverlay ? (
-        <BlockingOverlay
-          title={overlayTitle}
-          message={bootstrapStatus.message}
-          actions={
-            <>
-              <button
-                type="button"
-                onClick={refreshOverlayStatus}
-                className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
-              >
-                Opnieuw controleren
-              </button>
-              {bootstrapStatus.writeAuthMode === 'oauth_user' ? (
-                <button
-                  type="button"
-                  onClick={() => void onStartOauth()}
-                  disabled={!canStartOauth}
-                  className="rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-brand-700 disabled:cursor-not-allowed disabled:opacity-60"
-                >
-                  Aanmelden via AFAS
-                </button>
-              ) : null}
-            </>
-          }
-        />
-      ) : null}
     </div>
   );
 }
