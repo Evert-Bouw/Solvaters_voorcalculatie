@@ -28,7 +28,6 @@ export default function AppSettingsPage() {
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_APP_SETTINGS);
   const [bootstrapStatus, setBootstrapStatus] = useState<BootstrapStatus>(DEFAULT_BOOTSTRAP_STATUS);
   const [status, setStatus] = useState('');
-  const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [showDebugSection, setShowDebugSection] = useState(false);
   const [debugLines, setDebugLines] = useState<string[]>([]);
@@ -42,7 +41,6 @@ export default function AppSettingsPage() {
 
   useEffect(() => {
     void (async () => {
-      setLoading(true);
       try {
         const [coreSettings, nextBootstrapStatus, iframeResult, appSettings] = await Promise.all([
           fetchCoreSettings().catch(() => DEFAULT_CORE_SETTINGS),
@@ -69,8 +67,6 @@ export default function AppSettingsPage() {
         const message = (error as Error).message || 'App-instellingen konden niet worden geladen.';
         setStatus(message);
         pushDebugLine(`Laden mislukt: ${message}`);
-      } finally {
-        setLoading(false);
       }
     })();
   }, [refreshVersion]);
@@ -111,7 +107,7 @@ export default function AppSettingsPage() {
             <NavLink to="/" end className={({ isActive }) => navLinkClassName(isActive)}>
               App
             </NavLink>
-            <NavLink to="/settings/app" end className={({ isActive }) => navLinkClassName(isActive)}>
+            <NavLink to="/settings" end className={({ isActive }) => navLinkClassName(isActive)}>
               Instellingen
             </NavLink>
             <NavLink to="/settings/advanced" className={({ isActive }) => navLinkClassName(isActive)}>

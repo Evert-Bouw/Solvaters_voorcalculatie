@@ -109,7 +109,7 @@ const DEFAULT_SETTINGS: Settings = {
   },
 };
 
-const IFRAME_SESSION_STORAGE_KEY = 'voorcalc_iframe_session_id';
+const IFRAME_SESSION_STORAGE_KEY = 'solvaters_basis_iframe_session_id';
 const IFRAME_EXCHANGE_SEEN_KEY = 'voorcalc_iframe_exchange_seen';
 const FIXED_TABLE_SCALE = 0.75;
 const NO_STAGE_ID = 'NO_STAGE';
@@ -1238,7 +1238,8 @@ export default function AppPage() {
         throw new Error(writeAuthStatus.message || 'OAuth backend is nog niet ingericht.');
       }
       pendingSaveAfterAuthRef.current = continueSave;
-      const popup = window.open(getAfasOAuthStartUrl(), 'afas-oauth-login', 'popup=yes,width=720,height=820');
+      const popupUrl = await getAfasOAuthStartUrl();
+      const popup = window.open(popupUrl, 'afas-oauth-login', 'popup=yes,width=720,height=820');
       if (!popup) throw new Error('Popup geblokkeerd. Sta popups toe voor AFAS-login.');
       popup.focus();
     } catch (error) {

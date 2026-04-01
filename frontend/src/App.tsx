@@ -10,29 +10,46 @@ export default function App() {
     <Routes>
       <Route
         path="/"
-        element={(
+        element={
           <CoreRouteGuard
             scope="app"
             settingsLink={{ to: '/settings', label: 'Naar instellingen', requireSettingsAllowed: true }}
           >
             <AppPage />
           </CoreRouteGuard>
-        )}
+        }
       />
-      <Route path="/settings" element={<Navigate to="/settings/advanced" replace />} />
       <Route
-        path="/settings/app"
-        element={(
+        path="/bestellen"
+        element={
+          <CoreRouteGuard
+            scope="app"
+            settingsLink={{ to: '/settings', label: 'Naar instellingen', requireSettingsAllowed: true }}
+          >
+            <OrderPage />
+          </CoreRouteGuard>
+        }
+      />
+      <Route
+        path="/settings"
+        element={
           <CoreRouteGuard
             scope="settings"
-            settingsLink={{ to: '/settings/advanced', label: 'Geavanceerde instellingen' }}
+            settingsLink={{ to: '/settings/advanced', label: 'Geavanceerde instellingen', requireSettingsAllowed: false }}
           >
             <AppSettingsPage />
           </CoreRouteGuard>
-        )}
+        }
       />
-      <Route path="/settings/advanced" element={<SettingsPage />} />
-      <Route path="/bestellen" element={<OrderPage />} />
+      <Route path="/settings/app" element={<Navigate to="/settings" replace />} />
+      <Route
+        path="/settings/advanced"
+        element={
+          <CoreRouteGuard scope="settings">
+            <SettingsPage />
+          </CoreRouteGuard>
+        }
+      />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );

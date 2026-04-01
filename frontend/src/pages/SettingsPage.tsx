@@ -95,7 +95,7 @@ const DEFAULT_WRITE_AUTH_STATUS: AfasWriteAuthStatus = {
   authenticated: false,
   message: '',
 };
-const IFRAME_SESSION_STORAGE_KEY = 'voorcalc_iframe_session_id';
+const IFRAME_SESSION_STORAGE_KEY = 'solvaters_basis_iframe_session_id';
 
 function navLinkClassName(isActive: boolean) {
   return `rounded px-3 py-2 text-xs font-medium ${isActive ? 'bg-brand-600 text-white' : 'bg-slate-200 text-slate-700 hover:bg-slate-300'}`;
@@ -264,7 +264,8 @@ export default function SettingsPage() {
     setWriteAuthBusy(true);
     setAfasStatus('');
     try {
-      const popup = window.open(getAfasOAuthStartUrl(), 'afas-oauth-login', 'popup=yes,width=720,height=820');
+      const popupUrl = await getAfasOAuthStartUrl();
+      const popup = window.open(popupUrl, 'afas-oauth-login', 'popup=yes,width=720,height=820');
       if (!popup) throw new Error('Popup geblokkeerd. Sta popups toe voor AFAS-login.');
       popup.focus();
     } catch (error) {

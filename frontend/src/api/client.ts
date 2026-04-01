@@ -17,8 +17,8 @@ import {
 import { BootstrapStatus } from '../core/types';
 
 const settingsCacheKey = 'voorcalc_app_settings';
-const appSessionCacheKey = 'voorcalc_app_session_id';
-const iframeSessionStorageKey = 'voorcalc_iframe_session_id';
+const appSessionCacheKey = 'solvaters_basis_app_session_id';
+const iframeSessionStorageKey = 'solvaters_basis_iframe_session_id';
 const apiBase = (import.meta.env.VITE_API_BASE_URL as string | undefined)?.trim() || '';
 export const DEFAULT_BOOTSTRAP_STATUS: BootstrapStatus = {
   ready: false,
@@ -57,6 +57,16 @@ function getEmbedOrigin() {
     return '';
   }
 }
+
+const popupMessageOrigin = (() => {
+  if (!apiBase) return window.location.origin;
+  try {
+    return new URL(apiBase, window.location.origin).origin;
+  } catch {
+    return window.location.origin;
+  }
+})();
+const trustedPopupMessageOrigins = new Set([window.location.origin, popupMessageOrigin].filter(Boolean));
 
 function normalizeMarkupKey(value: unknown): Settings['markupOrder'][number] | null {
   if (typeof value !== 'string') return null;
@@ -150,7 +160,7 @@ async function api<T>(url: string, options?: RequestInit): Promise<T> {
 
 function createClientSessionId() {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') return crypto.randomUUID();
-  return `app-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+  return `${Date.now()}-${Math.random().toString(16).slice(2)}-${Math.random().toString(16).slice(2)}`;
 }
 
 export function getOrCreateAppSessionId() {
@@ -347,12 +357,21 @@ export const saveAfasConnectionConfig = (input: AfasConnectionInput) =>
     body: JSON.stringify(input),
   });
 
-export function getAfasOAuthStartUrl() {
+export async function getAfasOAuthStartUrl() {
   const params = new URLSearchParams();
   params.set('appSessionId', getOrCreateAppSessionId());
   const iframeSessionId = getStoredIframeSessionId();
   if (iframeSessionId) params.set('iframeSessionId', iframeSessionId);
-  return `${apiBase}/api/afas/oauth/start?${params.toString()}`;
+  const suffix = params.size ? `?${params.toString()}` : '';
+  const response = await api<{ ok: boolean; url?: string; error?: string }>(`/api/afas/oauth/start-url${suffix}`);
+  if (!response.url) {
+    throw new Error(response.error || 'AFAS OAuth-starturl ontbreekt.');
+  }
+  return response.url;
+}
+
+export function isTrustedPopupMessageOrigin(origin: string) {
+  return trustedPopupMessageOrigins.has(origin);
 }
 
 export const logoutAfasOAuthSession = () =>
