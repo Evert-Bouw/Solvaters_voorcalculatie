@@ -3,10 +3,10 @@
   "contentVersion": "1.0.0.0",
   "parameters": {
     "resourceGroupName": {
-      "value": "voorc-solv-rg"
+      "value": "voorcalc-solv"
     },
     "keyVaultName": {
-      "value": "voorc-solv-kv"
+      "value": "voorcalc-solv"
     },
     "storageAccountName": {
       "value": "voorcsolvopslag"
