@@ -15,6 +15,12 @@ import {
   Settings,
 } from '../types';
 import { BootstrapStatus } from '../core/types';
+import {
+  fetchAfasOAuthStartUrl as fetchCoreAfasOAuthStartUrl,
+  getOrCreateAppSessionId as getCoreOrCreateAppSessionId,
+  getStoredIframeSessionId as getCoreStoredIframeSessionId,
+  storeIframeSessionId as storeCoreIframeSessionId,
+} from '../core/api/client';
 
 const settingsCacheKey = 'voorcalc_app_settings';
 const appSessionCacheKey = 'solvaters_basis_app_session_id';
@@ -166,22 +172,15 @@ function createClientSessionId() {
 export function getOrCreateAppSessionId() {
   const existing = localStorage.getItem(appSessionCacheKey)?.trim();
   if (existing) return existing;
-  const next = createClientSessionId();
-  localStorage.setItem(appSessionCacheKey, next);
-  return next;
+  return getCoreOrCreateAppSessionId();
 }
 
 function getStoredIframeSessionId() {
-  return localStorage.getItem(iframeSessionStorageKey)?.trim() || '';
+  return getCoreStoredIframeSessionId();
 }
 
 export function storeIframeSessionId(sessionId?: string) {
-  const trimmed = sessionId?.trim() || '';
-  if (!trimmed) {
-    localStorage.removeItem(iframeSessionStorageKey);
-    return;
-  }
-  localStorage.setItem(iframeSessionStorageKey, trimmed);
+  storeCoreIframeSessionId(sessionId);
 }
 
 function normalizeSettings(input: Partial<Settings>): Settings {
@@ -358,16 +357,10 @@ export const saveAfasConnectionConfig = (input: AfasConnectionInput) =>
   });
 
 export async function getAfasOAuthStartUrl() {
-  const params = new URLSearchParams();
-  params.set('appSessionId', getOrCreateAppSessionId());
-  const iframeSessionId = getStoredIframeSessionId();
-  if (iframeSessionId) params.set('iframeSessionId', iframeSessionId);
-  const suffix = params.size ? `?${params.toString()}` : '';
-  const response = await api<{ ok: boolean; url?: string; error?: string }>(`/api/afas/oauth/start-url${suffix}`);
-  if (!response.url) {
-    throw new Error(response.error || 'AFAS OAuth-starturl ontbreekt.');
-  }
-  return response.url;
+  return fetchCoreAfasOAuthStartUrl({
+    appSessionId: getOrCreateAppSessionId(),
+    iframeSessionId: getStoredIframeSessionId(),
+  });
 }
 
 export function isTrustedPopupMessageOrigin(origin: string) {

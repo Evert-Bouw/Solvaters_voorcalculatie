@@ -220,6 +220,49 @@ let afasRuntimeSecrets: AfasRuntimeSecrets = {
   bootstrapAdminUserIds: [],
 };
 
+const iframeSessionStore = {
+  async getSession(sessionId: string) {
+    return iframeSessions.get(sessionId);
+  },
+  async saveSession(session: IframeSessionProfile) {
+    iframeSessions.set(session.sessionId, session);
+  },
+  async deleteSession(sessionId: string) {
+    iframeSessions.delete(sessionId);
+  },
+  async getSessionIdByAppSession(appSessionId: string) {
+    return appSessionToIframeSessionId.get(appSessionId);
+  },
+  async saveAppSessionBinding(appSessionId: string, sessionId: string) {
+    appSessionToIframeSessionId.set(appSessionId, sessionId);
+  },
+  async deleteAppSessionBinding(appSessionId: string) {
+    appSessionToIframeSessionId.delete(appSessionId);
+  },
+  async getSessionIdByCode(code: string) {
+    return iframeCodeToSessionId.get(code);
+  },
+  async saveCodeMapping(code: string, sessionId: string) {
+    iframeCodeToSessionId.set(code, sessionId);
+  },
+  async deleteCodeMapping(code: string) {
+    iframeCodeToSessionId.delete(code);
+  },
+  async cleanupExpired(now: number) {
+    for (const [sessionId, session] of iframeSessions.entries()) {
+      const expiresAt = new Date(getIframeSessionExpiresAt(session.lastSeenAt)).getTime();
+      if (expiresAt <= now) {
+        iframeSessions.delete(sessionId);
+      }
+    }
+    for (const [appSessionId, sessionId] of appSessionToIframeSessionId.entries()) {
+      if (!iframeSessions.has(sessionId)) {
+        appSessionToIframeSessionId.delete(appSessionId);
+      }
+    }
+  },
+};
+
 function isDebugSessionFlowEnabled() {
   const rawValue = process.env.DEBUG_SESSION_FLOW?.trim().toLowerCase() || '';
   return rawValue === '1' || rawValue === 'true' || rawValue === 'yes' || rawValue === 'on';
@@ -230,19 +273,7 @@ function rebuildAuthCore() {
     coreSettingsRef: () => buildCoreSettingsResponse(normalizeSettings(appSettings)),
     afasConfigRef: () => afasConfig,
     oauthStore,
-    iframeSessionStore: {
-      getSessionIdByAppSession: async (appSessionId) => appSessionToIframeSessionId.get(appSessionId),
-      getSession: async (sessionId) => iframeSessions.get(sessionId),
-      deleteAppSessionBinding: async (appSessionId) => {
-        appSessionToIframeSessionId.delete(appSessionId);
-      },
-      saveSession: async (session) => {
-        iframeSessions.set(session.sessionId, session);
-      },
-      saveAppSessionBinding: async (appSessionId, sessionId) => {
-        appSessionToIframeSessionId.set(appSessionId, sessionId);
-      },
-    },
+    iframeSessionStore,
     getRequestAppSessionId,
     peekRequestAppSessionId,
     peekRequestIframeSessionId: getRequestIframeSessionId,
@@ -510,14 +541,7 @@ async function persistAppOnlySettings(nextSettings: CoreShellAppSettings) {
 }
 
 async function cleanupExpiredIframeState() {
-  const now = nowMs();
-  for (const [sessionId, session] of iframeSessions.entries()) {
-    const expiresAt = new Date(getIframeSessionExpiresAt(session.lastSeenAt)).getTime();
-    if (expiresAt <= now) iframeSessions.delete(sessionId);
-  }
-  for (const [appSessionId, sessionId] of appSessionToIframeSessionId.entries()) {
-    if (!iframeSessions.has(sessionId)) appSessionToIframeSessionId.delete(appSessionId);
-  }
+  await iframeSessionStore.cleanupExpired(nowMs());
 }
 
 async function buildAfasUserDebugStatus(req: express.Request) {
@@ -2145,12 +2169,7 @@ registerOAuthRoutes(app, {
   nowMs,
   getAfasOAuthAuthorizeUrl: (config) => getAfasOAuthAuthorizeUrl(config as any),
   exchangeAfasOAuthToken,
-  iframeSessionStore: {
-    getSession: async (sessionId) => iframeSessions.get(sessionId),
-    deleteAppSessionBinding: async (appSessionId) => {
-      appSessionToIframeSessionId.delete(appSessionId);
-    },
-  },
+  iframeSessionStore,
   getRequestState,
   setBrowserSessionCookie,
   renderOAuthCallbackHtml,
@@ -2172,17 +2191,11 @@ registerIframeRoutes(app, {
   getAfasRuntimeSecretForPublicKey: async (publicKey) => iframePublicKeySecrets[publicKey],
   iframeExchangeInFlight,
   iframeSessionStore: {
+    ...iframeSessionStore,
     saveSession: async (session) => {
       const enriched = await enrichIframeSessionProfile(session);
-      iframeSessions.set(enriched.sessionId, enriched);
+      await iframeSessionStore.saveSession(enriched);
     },
-    saveAppSessionBinding: async (appSessionId, sessionId) => {
-      appSessionToIframeSessionId.set(appSessionId, sessionId);
-    },
-    saveCodeMapping: async (code, sessionId) => {
-      iframeCodeToSessionId.set(code, sessionId);
-    },
-    getSession: async (sessionId) => iframeSessions.get(sessionId),
   },
   getIframeSessionExpiresAt,
   nowMs,
