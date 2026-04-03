@@ -23,6 +23,12 @@ export default function CoreRouteGuard({ children, scope, settingsLink }: CoreRo
   const [contentRevision, setContentRevision] = useState(0);
   const [refreshVersion, setRefreshVersion] = useState(0);
 
+  function scheduleFullReload(delayMs = 3000) {
+    window.setTimeout(() => {
+      window.location.reload();
+    }, delayMs);
+  }
+
   useEffect(() => {
     let cancelled = false;
 
@@ -63,6 +69,7 @@ export default function CoreRouteGuard({ children, scope, settingsLink }: CoreRo
     onIframeSessionChange: (session) => setHasActiveIframeSession(Boolean(session?.sessionId)),
     onSuccess: async () => {
       await refreshGuard({ remountContent: true });
+      scheduleFullReload();
     },
     onFailure: async () => {
       await refreshGuard();
@@ -78,7 +85,6 @@ export default function CoreRouteGuard({ children, scope, settingsLink }: CoreRo
         bootstrapStatus={bootstrapStatus}
         onRefresh={() => void refreshGuard({ remountContent: true })}
         oauthLoginBusy={oauthLogin.busy}
-        hasActiveIframeSession={hasActiveIframeSession}
         onStartOauth={() => void oauthLogin.startLogin()}
         settingsLink={settingsLink}
       />

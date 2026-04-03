@@ -16,7 +16,6 @@ type CoreAccessOverlayProps = {
   bootstrapStatus: BootstrapStatus;
   onRefresh: () => void;
   oauthLoginBusy?: boolean;
-  hasActiveIframeSession?: boolean;
   onStartOauth?: () => void;
   settingsLink?: SettingsLinkConfig;
 };
@@ -50,7 +49,6 @@ export default function CoreAccessOverlay({
   bootstrapStatus,
   onRefresh,
   oauthLoginBusy = false,
-  hasActiveIframeSession = false,
   onStartOauth,
   settingsLink,
 }: CoreAccessOverlayProps) {
@@ -60,7 +58,6 @@ export default function CoreAccessOverlay({
   const canStartOauth =
     bootstrapStatus.writeAuthMode === 'oauth_user' &&
     bootstrapStatus.oauthConfigured &&
-    (bootstrapStatus.hasIframeSession || hasActiveIframeSession) &&
     !oauthLoginBusy;
   const showSettingsLink =
     Boolean(settingsLink) &&
