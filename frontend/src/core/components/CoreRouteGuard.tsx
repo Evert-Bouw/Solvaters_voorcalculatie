@@ -1,4 +1,4 @@
-import { Fragment, ReactNode, useEffect, useState } from 'react';
+import { Fragment, ReactNode, useEffect, useRef, useState } from 'react';
 import { useLocation } from 'react-router-dom';
 import { DEFAULT_BOOTSTRAP_STATUS, fetchBootstrapStatus, fetchIframeSessionProfile } from '../api/client';
 import { BootstrapStatus } from '../types';
@@ -22,6 +22,7 @@ export default function CoreRouteGuard({ children, scope, settingsLink }: CoreRo
   const [hasActiveIframeSession, setHasActiveIframeSession] = useState(false);
   const [contentRevision, setContentRevision] = useState(0);
   const [refreshVersion, setRefreshVersion] = useState(0);
+  const autoRetryDoneRef = useRef(false);
 
   function scheduleFullReload(delayMs = 3000) {
     window.setTimeout(() => {
@@ -57,6 +58,21 @@ export default function CoreRouteGuard({ children, scope, settingsLink }: CoreRo
       cancelled = true;
     };
   }, [location.pathname, refreshVersion]);
+
+  // When the initial bootstrap sees no iframe session (iframe_required), the
+  // AFAS iframe exchange in AppPage may still be in progress. Auto-retry once
+  // after a short delay so the user doesn't have to click "opnieuw controleren"
+  // manually just to get past the race condition on first load.
+  useEffect(() => {
+    if (loading) return;
+    if (bootstrapStatus.blockReason !== 'iframe_required') return;
+    if (autoRetryDoneRef.current) return;
+    autoRetryDoneRef.current = true;
+    const timer = window.setTimeout(() => {
+      setRefreshVersion((v) => v + 1);
+    }, 2500);
+    return () => window.clearTimeout(timer);
+  }, [loading, bootstrapStatus.blockReason]);
 
   async function refreshGuard(options?: { remountContent?: boolean }) {
     setRefreshVersion((current) => current + 1);
