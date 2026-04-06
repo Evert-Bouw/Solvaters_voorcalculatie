@@ -28,6 +28,7 @@ import { registerAppRoutes } from './app/routes/registerAppRoutes.js';
 import { registerVoorcalculatieRoutes } from './app/routes/registerVoorcalculatieRoutes.js';
 import { createAuthCore } from './core/auth/createAuthCore.js';
 import { PARAM_ID_CATALOG } from './core/config/paramIdCatalog.js';
+import { AppSettingsStore, createAppSettingsStore } from './core/stores/appStateStore.js';
 import { registerCoreSettingsRoutes } from './core/routes/registerCoreSettingsRoutes.js';
 import { registerAfasRoutes } from './core/routes/registerAfasRoutes.js';
 import { registerOAuthRoutes } from './core/routes/registerOAuthRoutes.js';
@@ -43,6 +44,7 @@ import {
   setSecretValue,
 } from './keyVault.js';
 import { AfasOAuthSession, createOAuthStore, OAuthStore, PendingAfasOAuthState } from './oauthStore.js';
+import type { CoreSettings as PersistableCoreSettings } from './core/types/index.js';
 import {
   AfasWriteAuthMode,
   Creditor,
@@ -150,6 +152,8 @@ const defaultSettings: Settings = {
 
 let appSettings: Settings = structuredClone(defaultSettings);
 let coreShellAppSettings: CoreShellAppSettings = normalizeAppSettings(DEFAULT_APP_SETTINGS);
+const appSettingsScopeKey = process.env.APP_SETTINGS_SCOPE_KEY?.trim() || 'voorcalculatie';
+let appSettingsStore: AppSettingsStore = createAppSettingsStore();
 
 type IframeSessionProfile = {
   sessionId: string;
@@ -524,19 +528,30 @@ function applyCoreSettingsPayload(input: CoreSettingsPayload) {
 }
 
 async function loadCoreSettings() {
-  return buildCoreSettingsResponse(normalizeSettings(appSettings));
+  const stored = await appSettingsStore.getCoreSettings(appSettingsScopeKey);
+  if (stored) {
+    applyCoreSettingsPayload(stored as unknown as CoreSettingsPayload);
+  }
+  return buildCoreSettingsResponse(appSettings);
 }
 
 async function persistCoreSettings(nextSettings: CoreSettingsPayload) {
-  return applyCoreSettingsPayload(nextSettings);
+  const result = applyCoreSettingsPayload(nextSettings);
+  await appSettingsStore.saveCoreSettings(appSettingsScopeKey, result as unknown as PersistableCoreSettings);
+  return result;
 }
 
 async function loadAppOnlySettings() {
+  const stored = await appSettingsStore.getAppSettings(appSettingsScopeKey);
+  if (stored) {
+    coreShellAppSettings = normalizeAppSettings(stored);
+  }
   return coreShellAppSettings;
 }
 
 async function persistAppOnlySettings(nextSettings: CoreShellAppSettings) {
   coreShellAppSettings = normalizeAppSettings(nextSettings);
+  await appSettingsStore.saveAppSettings(appSettingsScopeKey, coreShellAppSettings);
   return coreShellAppSettings;
 }
 
@@ -601,6 +616,9 @@ function resetRuntimeSecretsFromEnvironment() {
     connectionString: afasRuntimeSecrets.tableStorageConnectionString,
     encryptionKey: afasRuntimeSecrets.encryptionKey,
   });
+  appSettingsStore = createAppSettingsStore({
+    connectionString: afasRuntimeSecrets.tableStorageConnectionString,
+  });
   authCore = rebuildAuthCore();
 }
 
@@ -628,6 +646,9 @@ async function refreshRuntimeSecretsFromKeyVault(environmentNumber?: string) {
   oauthStore = createOAuthStore(oauthStateTtlMs, {
     connectionString: afasRuntimeSecrets.tableStorageConnectionString,
     encryptionKey: afasRuntimeSecrets.encryptionKey,
+  });
+  appSettingsStore = createAppSettingsStore({
+    connectionString: afasRuntimeSecrets.tableStorageConnectionString,
   });
   authCore = rebuildAuthCore();
 }
@@ -3166,8 +3187,11 @@ app.get('/api/creditors', async (req, res) => {
 async function startServer() {
   resetRuntimeSecretsFromEnvironment();
   await loadAfasConfigFromKeyVault();
+  // Load persisted settings after secrets/connection strings are resolved.
+  await loadCoreSettings();
+  await loadAppOnlySettings();
   app.listen(port, () => {
-    console.log(`API draait op http://localhost:${port} (afas, oauth-store=${oauthStore.getMode()})`);
+    console.log(`API draait op http://localhost:${port} (afas, oauth-store=${oauthStore.getMode()}, settings-store=${appSettingsStore.getMode()})`);
   });
 }
 

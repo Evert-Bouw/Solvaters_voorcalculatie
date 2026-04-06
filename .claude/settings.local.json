@@ -1,7 +1,11 @@
 {
   "permissions": {
     "allow": [
-      "Bash(cat \"c:/Users/EvertBouwSolvatersBV/Downloads/Solvaters_voorcalculatie/infra/\"*)"
+      "Bash(cat \"c:/Users/EvertBouwSolvatersBV/Downloads/Solvaters_voorcalculatie/infra/\"*)",
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "Bash(gh repo:*)",
+      "WebFetch(domain:api.github.com)",
+      "WebFetch(domain:github.com)"
     ]
   }
 }
