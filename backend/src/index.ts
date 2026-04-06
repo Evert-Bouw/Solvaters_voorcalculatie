@@ -1115,12 +1115,13 @@ async function resolveAfasAuth(req: express.Request): Promise<AfasRequestAuth> {
   };
 }
 
-function renderOAuthCallbackHtml(payload: { ok: boolean; message: string; appSessionId?: string }) {
+function renderOAuthCallbackHtml(payload: { ok: boolean; message: string; appSessionId?: string; targetOrigin?: string }) {
   const escapedMessage = payload.message
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;');
-  const serialized = JSON.stringify({ type: 'afas-oauth-complete', ...payload });
+  const targetOrigin = payload.targetOrigin?.trim() || '*';
+  const serialized = JSON.stringify({ type: 'afas-oauth-complete', ok: payload.ok, message: payload.message, appSessionId: payload.appSessionId });
   return `<!doctype html>
 <html lang="nl">
   <head>
@@ -1129,12 +1130,13 @@ function renderOAuthCallbackHtml(payload: { ok: boolean; message: string; appSes
   </head>
   <body style="font-family: Arial, sans-serif; padding: 16px;">
     <p>${escapedMessage}</p>
-    <script>
+    <script nonce="__CSP_NONCE__">
       (function () {
         var payload = ${serialized};
+        var targetOrigin = ${JSON.stringify(targetOrigin)};
         try {
           if (window.opener && !window.opener.closed) {
-            window.opener.postMessage(payload, '*');
+            window.opener.postMessage(payload, targetOrigin);
           }
         } catch (error) {}
         window.setTimeout(function () { window.close(); }, 150);

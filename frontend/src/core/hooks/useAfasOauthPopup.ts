@@ -75,6 +75,19 @@ export function useAfasOauthPopup(options: UseAfasOauthPopupOptions = {}) {
     optionsRef.current.onStatusChange?.('Aanmelden via AFAS gestart...');
     optionsRef.current.onDebugLine?.('OAuth-login gestart.');
 
+    // Open the popup synchronously within the user-gesture context before any
+    // await, otherwise browsers (especially inside iframes) will block it.
+    const popupName = `afas-oauth-${Date.now()}`;
+    const popup = window.open('about:blank', popupName, 'popup,width=560,height=760');
+    if (!popup) {
+      await finishFailure('OAuth-popup is geblokkeerd door de browser.');
+      return;
+    }
+    optionsRef.current.onDebugLine?.('OAuth-popup geopend (about:blank).');
+
+    clearPopupWatchers();
+    popupMessageReceivedRef.current = false;
+
     try {
       const iframeResult = await fetchIframeSessionProfile();
       optionsRef.current.onIframeSessionChange?.(iframeResult.session);
@@ -83,14 +96,8 @@ export function useAfasOauthPopup(options: UseAfasOauthPopupOptions = {}) {
       );
       const url = await fetchAfasOAuthStartUrl({ iframeSessionId: iframeResult.session.sessionId });
       optionsRef.current.onDebugLine?.('OAuth start-url ontvangen.');
-      clearPopupWatchers();
-      popupMessageReceivedRef.current = false;
-      const popup = window.open(url, `afas-oauth-${Date.now()}`, 'popup,width=560,height=760');
-      if (!popup) {
-        await finishFailure('OAuth-popup is geblokkeerd door de browser.');
-        return;
-      }
-      optionsRef.current.onDebugLine?.('OAuth-popup geopend.');
+      popup.location.href = url;
+      optionsRef.current.onDebugLine?.('OAuth-popup genavigeerd naar AFAS.');
       popupPollRef.current = window.setInterval(() => {
         if (popup.closed && !popupMessageReceivedRef.current) {
           clearPopupWatchers();
@@ -111,6 +118,11 @@ export function useAfasOauthPopup(options: UseAfasOauthPopupOptions = {}) {
     } catch (error) {
       clearPopupWatchers();
       popupMessageReceivedRef.current = false;
+      try {
+        popup.close();
+      } catch {
+        // Ignore close errors from browser popup restrictions.
+      }
       const message = (error as Error).message || 'AFAS OAuth-login kon niet worden gestart.';
       optionsRef.current.onDebugLine?.(`OAuth start fout: ${message}`);
       await finishFailure(message);
