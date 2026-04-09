@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import { NavLink } from 'react-router-dom';
 import {
+  DEFAULT_BOOTSTRAP_STATUS,
+  fetchBootstrapStatus,
   fetchCreditors,
   fetchProject,
   fetchProjects,
@@ -10,6 +12,8 @@ import {
   fetchSettings,
   saveQuotationLines,
 } from '../api/client';
+import BlockingOverlay from '../core/components/BlockingOverlay';
+import { BootstrapStatus } from '../core/types';
 import { Creditor, Project, ProjectStage, Quotation, QuotationLine, QuotationLineMutation, Settings } from '../types';
 import { normalizeMeasurementLine, SELECTED_PROJECT_STORAGE_KEY } from '../utils/measurement';
 import { aggregatePurchaseLines } from '../utils/purchasing';
@@ -131,8 +135,10 @@ export default function OrderPage() {
   const urlProjectId = useMemo(() => getProjectIdFromUrlContext(), []);
   const isProjectLockedFromUrl = Boolean(urlProjectId);
   const [settings, setSettings] = useState<Settings | null>(null);
+  const [bootstrapStatus, setBootstrapStatus] = useState<BootstrapStatus>(DEFAULT_BOOTSTRAP_STATUS);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [refreshVersion, setRefreshVersion] = useState(0);
   const [prId, setPrId] = useState(() => urlProjectId || localStorage.getItem(SELECTED_PROJECT_STORAGE_KEY) || '');
   const [projects, setProjects] = useState<Project[]>([]);
   const [project, setProject] = useState<Project | null>(null);
@@ -163,6 +169,13 @@ export default function OrderPage() {
     async function bootstrap() {
       setLoading(true);
       try {
+        const nextBootstrapStatus = await fetchBootstrapStatus();
+        if (!mounted) return;
+        setBootstrapStatus(nextBootstrapStatus);
+        if (!nextBootstrapStatus.ready) {
+          setError('');
+          return;
+        }
         const [settingsData, projectOptions] = await Promise.all([fetchSettings(), fetchProjects()]);
         if (!mounted) return;
         setSettings(settingsData);
@@ -179,7 +192,7 @@ export default function OrderPage() {
     return () => {
       mounted = false;
     };
-  }, []);
+  }, [refreshVersion]);
 
   useEffect(() => {
     if (!settings) return;
@@ -199,6 +212,10 @@ export default function OrderPage() {
   useEffect(() => {
     let mounted = true;
     async function loadProjectContext() {
+      if (!bootstrapStatus.ready) {
+        setLoading(false);
+        return;
+      }
       if (!prId) {
         setProject(null);
         setStages([]);
@@ -265,7 +282,7 @@ export default function OrderPage() {
     return () => {
       mounted = false;
     };
-  }, [prId]);
+  }, [prId, bootstrapStatus.ready]);
 
   const selectableProjects = useMemo(() => projects.filter((option) => option.id !== 'BIB'), [projects]);
   const showPhasePanel = settings?.usePhases ?? true;
@@ -274,6 +291,13 @@ export default function OrderPage() {
     if (!showPhasePanel) return 'md:grid-cols-1';
     return isPhasePanelCollapsed ? 'md:grid-cols-[46px_1fr]' : 'md:grid-cols-[280px_1fr]';
   }, [showPhasePanel, isPhasePanelCollapsed]);
+  const showOverlay = !loading && !bootstrapStatus.ready;
+  const overlayTitle =
+    bootstrapStatus.blockReason === 'iframe_required'
+      ? 'Open deze app vanuit AFAS'
+      : bootstrapStatus.blockReason === 'oauth_login_required'
+        ? 'Aanmelden vereist'
+        : 'Configuratie vereist';
 
   const hasVisibleNoPhaseLines = useMemo(
     () => lines.some((line) => line.stageId === NO_STAGE_ID && selectedQuotationIds.includes(line.quotationId)),
@@ -1179,6 +1203,29 @@ export default function OrderPage() {
           </main>
         </div>
       </div>
+      {showOverlay ? (
+        <BlockingOverlay
+          title={overlayTitle}
+          message={bootstrapStatus.message}
+          actions={
+            <>
+              <button
+                type="button"
+                onClick={() => setRefreshVersion((current) => current + 1)}
+                className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
+              >
+                Opnieuw controleren
+              </button>
+              <NavLink
+                to="/settings"
+                className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
+              >
+                Naar instellingen
+              </NavLink>
+            </>
+          }
+        />
+      ) : null}
     </div>
   );
 }
