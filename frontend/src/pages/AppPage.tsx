@@ -52,7 +52,6 @@ import { getActiveMarkupConfigs, getActiveMarkupTypesByBasis, getMarkupBasis, ge
 import { getLegacyMeasurementMode, getLineMeasurementMode, normalizeMeasurementLine, SELECTED_PROJECT_STORAGE_KEY } from '../utils/measurement';
 import { applyColumnOrder, buildDefaultTableColumnKeys } from '../utils/tableColumns';
 import { applyThemeColors } from '../utils/theme';
-import BlockingOverlay from '../core/components/BlockingOverlay';
 
 const DEFAULT_SETTINGS: Settings = {
   dataMode: 'afas',
@@ -4295,28 +4294,6 @@ export default function AppPage() {
     if (showLibraryPanel) return isLibraryPanelCollapsed ? 'md:grid-cols-[1fr_46px]' : 'md:grid-cols-[1fr_280px]';
     return 'md:grid-cols-1';
   }, [showPhasePanel, showLibraryPanel, isPhasePanelCollapsed, isLibraryPanelCollapsed]);
-  const showOverlay = !loading && !bootstrapStatus.ready;
-  const canOpenSettings = bootstrapStatus.settingsAllowed;
-  const canStartOauth =
-    bootstrapStatus.writeAuthMode === 'oauth_user' &&
-    writeAuthStatus.oauthConfigured &&
-    (bootstrapStatus.hasIframeSession || Boolean(iframeSession?.sessionId)) &&
-    !writeAuthBusy;
-  const overlayMessage =
-    writeAuthBusy
-      ? 'Aanmelden via AFAS is bezig. Wacht even terwijl we controleren of de sessie correct is gekoppeld.'
-      : bootstrapStatus.writeAuthMode === 'oauth_user' && !bootstrapStatus.oauthConfigured
-        ? 'OAuth namens gebruiker staat aan, maar de basisconfiguratie is nog niet afgerond. Open Instellingen, sla eerst het omgevingsnummer en omgevingstype op en meld daarna aan via AFAS.'
-        : bootstrapStatus.writeAuthMode === 'oauth_user' && !bootstrapStatus.oauthAuthenticated
-          ? 'De basisconfiguratie staat goed. Meld je nu aan via AFAS om deze voorcalculatie namens de huidige gebruiker te gebruiken.'
-          : bootstrapStatus.message;
-  const overlayTitle =
-    bootstrapStatus.blockReason === 'iframe_required'
-      ? 'Open deze app vanuit AFAS'
-      : bootstrapStatus.blockReason === 'oauth_login_required'
-        ? 'Aanmelden vereist'
-        : 'Configuratie vereist';
-
   if (loading) return <div className="p-6 text-sm text-slate-700">Laden...</div>;
 
   return (
@@ -4944,43 +4921,6 @@ export default function AppPage() {
           </div>
         </div>
         ) : null}
-
-      {showOverlay ? (
-        <BlockingOverlay
-          title={overlayTitle}
-          message={overlayMessage}
-          actions={
-            <>
-              <button
-                type="button"
-                onClick={refreshAppView}
-                disabled={writeAuthBusy}
-                className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                Opnieuw controleren
-              </button>
-              {canOpenSettings ? (
-                <NavLink
-                  to="/settings"
-                  className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
-                >
-                  Naar instellingen
-                </NavLink>
-              ) : null}
-              {bootstrapStatus.writeAuthMode === 'oauth_user' ? (
-                <button
-                  type="button"
-                  onClick={() => void openOauthLogin()}
-                  disabled={!canStartOauth}
-                  className="rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-brand-700 disabled:cursor-not-allowed disabled:opacity-60"
-                >
-                  {writeAuthBusy ? 'Aanmelden bezig...' : 'Aanmelden via AFAS'}
-                </button>
-              ) : null}
-            </>
-          }
-        />
-      ) : null}
 
       </div>
     );

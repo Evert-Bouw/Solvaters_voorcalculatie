@@ -39,7 +39,6 @@ import {
 import { AppSettings } from '../../app/settings/types';
 import { DEFAULT_APP_SETTINGS, normalizeAppSettings } from '../../app/settings/defaults';
 import { applyThemeColors } from '../utils/theme';
-import BlockingOverlay from '../components/BlockingOverlay';
 import FullscreenToggleButton from '../components/FullscreenToggleButton';
 import RefreshButton from '../components/RefreshButton';
 import ToggleSection from '../components/ToggleSection';
@@ -557,7 +556,6 @@ export default function SettingsPage() {
     setRefreshVersion((current) => current + 1);
   }
 
-  const showOverlay = !loading && !bootstrapStatus.settingsAllowed;
   const hasActiveIframeSession = Boolean(iframeSessionProfile?.sessionId) || bootstrapStatus.hasIframeSession;
   const canStartOauth =
     bootstrapStatus.writeAuthMode === 'oauth_user' &&
@@ -606,12 +604,6 @@ export default function SettingsPage() {
     { label: 'blockReason', value: bootstrapStatus.blockReason || '-' },
     { label: 'afasStatus', value: afasStatus || '-' },
   ];
-  const overlayTitle =
-    bootstrapStatus.blockReason === 'iframe_required'
-      ? 'Open deze app vanuit AFAS'
-      : bootstrapStatus.blockReason === 'oauth_login_required'
-        ? 'Aanmelden vereist'
-        : 'Geen toegang tot instellingen';
   return (
     <div className="min-h-screen bg-slate-100 text-slate-900">
       <header className="border-b border-slate-200 bg-white/90 backdrop-blur">
@@ -1321,35 +1313,8 @@ export default function SettingsPage() {
             {settingsStatus ? <p className="text-sm text-slate-600">{settingsStatus}</p> : null}
           </div>
         </ToggleSection>
-        </main>
-        {showOverlay ? (
-          <BlockingOverlay
-            title={overlayTitle}
-            message={bootstrapStatus.message}
-            actions={
-              <>
-                <button
-                  type="button"
-                  onClick={refreshSettingsView}
-                  className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
-                >
-                  Opnieuw controleren
-                </button>
-                {bootstrapStatus.writeAuthMode === 'oauth_user' ? (
-                  <button
-                    type="button"
-                    onClick={() => void oauthLogin.startLogin()}
-                    disabled={!canStartOauth}
-                    className="rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-brand-700 disabled:cursor-not-allowed disabled:opacity-60"
-                  >
-                    {oauthLogin.busy ? 'Aanmelden bezig...' : 'Aanmelden via AFAS'}
-                  </button>
-                ) : null}
-              </>
-            }
-          />
-        ) : null}
-      </div>
-    );
-  }
+      </main>
+    </div>
+  );
+}
 

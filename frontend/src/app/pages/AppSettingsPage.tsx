@@ -11,7 +11,6 @@ import {
 import { DEFAULT_CORE_SETTINGS } from '../../core/settings';
 import { BootstrapStatus } from '../../core/types';
 import { applyThemeColors } from '../../core/utils/theme';
-import BlockingOverlay from '../../core/components/BlockingOverlay';
 import FullscreenToggleButton from '../../core/components/FullscreenToggleButton';
 import RefreshButton from '../../core/components/RefreshButton';
 import AppDebugSection from '../settings/AppDebugSection';
@@ -101,14 +100,6 @@ export default function AppSettingsPage() {
     setRefreshVersion((current) => current + 1);
   }
 
-  const showOverlay = !loading && !bootstrapStatus.settingsAllowed;
-  const overlayTitle =
-    bootstrapStatus.blockReason === 'iframe_required'
-      ? 'Open deze app vanuit AFAS'
-      : bootstrapStatus.blockReason === 'oauth_login_required'
-        ? 'Aanmelden vereist'
-        : 'Geen toegang tot instellingen';
-
   return (
     <div className="min-h-screen bg-slate-100 text-slate-900">
       <header className="border-b border-slate-200 bg-white/90 backdrop-blur">
@@ -195,29 +186,6 @@ export default function AppSettingsPage() {
           ) : null}
         </section>
       </main>
-      {showOverlay ? (
-        <BlockingOverlay
-          title={overlayTitle}
-          message={bootstrapStatus.message}
-          actions={
-            <>
-              <button
-                type="button"
-                onClick={refreshSettingsView}
-                className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
-              >
-                Opnieuw controleren
-              </button>
-              <NavLink
-                to="/settings/advanced"
-                className="rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-brand-700"
-              >
-                Geavanceerde instellingen
-              </NavLink>
-            </>
-          }
-        />
-      ) : null}
     </div>
   );
 }

@@ -12,7 +12,6 @@ import {
   fetchSettings,
   saveQuotationLines,
 } from '../api/client';
-import BlockingOverlay from '../core/components/BlockingOverlay';
 import { BootstrapStatus } from '../core/types';
 import { Creditor, Project, ProjectStage, Quotation, QuotationLine, QuotationLineMutation, Settings } from '../types';
 import { normalizeMeasurementLine, SELECTED_PROJECT_STORAGE_KEY } from '../utils/measurement';
@@ -291,14 +290,6 @@ export default function OrderPage() {
     if (!showPhasePanel) return 'md:grid-cols-1';
     return isPhasePanelCollapsed ? 'md:grid-cols-[46px_1fr]' : 'md:grid-cols-[280px_1fr]';
   }, [showPhasePanel, isPhasePanelCollapsed]);
-  const showOverlay = !loading && !bootstrapStatus.ready;
-  const overlayTitle =
-    bootstrapStatus.blockReason === 'iframe_required'
-      ? 'Open deze app vanuit AFAS'
-      : bootstrapStatus.blockReason === 'oauth_login_required'
-        ? 'Aanmelden vereist'
-        : 'Configuratie vereist';
-
   const hasVisibleNoPhaseLines = useMemo(
     () => lines.some((line) => line.stageId === NO_STAGE_ID && selectedQuotationIds.includes(line.quotationId)),
     [lines, selectedQuotationIds],
@@ -1203,29 +1194,6 @@ export default function OrderPage() {
           </main>
         </div>
       </div>
-      {showOverlay ? (
-        <BlockingOverlay
-          title={overlayTitle}
-          message={bootstrapStatus.message}
-          actions={
-            <>
-              <button
-                type="button"
-                onClick={() => setRefreshVersion((current) => current + 1)}
-                className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
-              >
-                Opnieuw controleren
-              </button>
-              <NavLink
-                to="/settings"
-                className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
-              >
-                Naar instellingen
-              </NavLink>
-            </>
-          }
-        />
-      ) : null}
     </div>
   );
 }
