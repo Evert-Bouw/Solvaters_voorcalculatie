@@ -67,6 +67,12 @@ let afasConfig = getAfasConfig();
 const generatedSessionSecret = randomBytes(32).toString('hex');
 const sessionSecret = process.env.SESSION_SECRET?.trim() || generatedSessionSecret;
 const isProduction = process.env.NODE_ENV === 'production';
+const corsOrigins = (
+  process.env.CORS_ORIGIN?.split(',')
+    .map((value) => value.trim())
+    .filter(Boolean) ?? []
+).concat(isProduction ? [] : ['http://localhost:5173', 'http://127.0.0.1:5173']);
+const allowedCorsOrigins = [...new Set(corsOrigins)];
 const cookieSameSite: true | false | 'lax' | 'strict' | 'none' = isProduction ? 'none' : 'lax';
 const cookieSecure = isProduction ? true : 'auto';
 const browserSessionCookieName = 'solvaters.appsid';
@@ -85,10 +91,14 @@ const legacyMarkupMap: Record<string, MarkupType> = {
   RW: 'M10',
 };
 
-const corsOrigin = process.env.CORS_ORIGIN;
 app.use(
   cors({
-    origin: corsOrigin ? corsOrigin.split(',').map((x) => x.trim()) : true,
+    origin(origin, callback) {
+      if (!origin) return callback(null, true);
+      if (allowedCorsOrigins.includes(origin)) return callback(null, true);
+      return callback(new Error('CORS origin niet toegestaan.'));
+    },
+    credentials: true,
   }),
 );
 app.use(express.json());
