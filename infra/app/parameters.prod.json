@@ -24,7 +24,7 @@
       "value": "false"
     },
     "additionalCorsOrigins": {
-      "value": "https://voorcalculatie.solvatersapps.nl"
+      "value": "https://voorcalculatie.solvatersapps.nl,https://yellow-pebble-0ddff5903.4.azurestaticapps.net"
     },
     "afasOauthRedirectUri": {
       "value": "https://solvaters-voorcalculatie-api.azurewebsites.net/api/afas/oauth/callback"
