@@ -24,7 +24,7 @@
       "value": "false"
     },
     "additionalCorsOrigins": {
-      "value": ""
+      "value": "https://voorcalculatie.solvatersapps.nl"
     },
     "afasOauthRedirectUri": {
       "value": "https://solvaters-voorcalculatie-api.azurewebsites.net/api/afas/oauth/callback"

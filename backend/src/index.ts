@@ -196,7 +196,7 @@ let afasUsersCache = {
 };
 const defaultLockTtlSeconds = 180;
 const maxLockTtlSeconds = 600;
-const iframeTokenAllowedHostSuffixes = ['.afasinsite.nl', '.afas.online'];
+const iframeTokenAllowedHostSuffixes = ['.afasinsite.nl', '.afas.online', '.solvatersapps.nl'];
 const oauthStateTtlMs = 10 * 60 * 1000;
 const afasAdminRoleCode = 'PR-001';
 const userGroupsConnectorName = 'Profit_UserGroups';
