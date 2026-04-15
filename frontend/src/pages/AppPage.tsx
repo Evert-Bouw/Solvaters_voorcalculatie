@@ -6,7 +6,6 @@ import {
   claimQuotationLock,
   createProjectStage,
   createQuotation,
-  exchangeIframeSession,
   fetchAfasWriteAuthStatus,
   fetchBootstrapStatus,
   fetchCreditors,
@@ -110,7 +109,6 @@ const DEFAULT_SETTINGS: Settings = {
 };
 
 const IFRAME_SESSION_STORAGE_KEY = 'solvaters_basis_iframe_session_id';
-const IFRAME_EXCHANGE_SEEN_KEY = 'voorcalc_iframe_exchange_seen';
 const FIXED_TABLE_SCALE = 0.75;
 const NO_STAGE_ID = 'NO_STAGE';
 const LOCK_HEARTBEAT_MS = 30_000;
@@ -625,61 +623,8 @@ export default function AppPage() {
     let mounted = true;
     async function bootstrapIframeSession() {
       const params = new URLSearchParams(window.location.search);
-      const tokenurl = params.get('tokenurl')?.trim() ?? '';
-      const code = params.get('code')?.trim() ?? '';
-      const publickey = params.get('publickey')?.trim() ?? '';
-      const sessionid = params.get('sessionid')?.trim() ?? '';
       const dataurl = params.get('dataurl')?.trim() ?? '';
-      const hasExchangeParams = Boolean(tokenurl && code && publickey && sessionid);
       const hasDataUrl = Boolean(dataurl);
-
-      if (hasExchangeParams) {
-        const exchangeKey = `${sessionid}:${code}`;
-        const seenExchangeKey = sessionStorage.getItem(IFRAME_EXCHANGE_SEEN_KEY)?.trim() ?? '';
-        if (seenExchangeKey === exchangeKey) {
-          try {
-            const existing = await fetchIframeSessionProfile(sessionid);
-            if (!mounted) return;
-            setIframeContextMode('method1');
-            setIframeSession(existing.session);
-            localStorage.setItem(IFRAME_SESSION_STORAGE_KEY, existing.session.sessionId);
-            params.delete('tokenurl');
-            params.delete('code');
-            params.delete('publickey');
-            params.delete('sessionid');
-            const nextQuery = params.toString();
-            window.history.replaceState({}, '', `${window.location.pathname}${nextQuery ? `?${nextQuery}` : ''}`);
-            return;
-          } catch {
-            // Fall through to retry exchange once.
-          }
-        }
-        sessionStorage.setItem(IFRAME_EXCHANGE_SEEN_KEY, exchangeKey);
-        try {
-          const response = await exchangeIframeSession({ tokenurl, code, publickey, sessionid });
-          if (!mounted) return;
-          setIframeContextMode('method1');
-          setIframeSession(response.session);
-          localStorage.setItem(IFRAME_SESSION_STORAGE_KEY, response.session.sessionId);
-          params.delete('tokenurl');
-          params.delete('code');
-          params.delete('publickey');
-          params.delete('sessionid');
-          const nextQuery = params.toString();
-          window.history.replaceState({}, '', `${window.location.pathname}${nextQuery ? `?${nextQuery}` : ''}`);
-          return;
-        } catch (error) {
-          if (!mounted) return;
-          if (hasDataUrl) {
-            // Method 2 fallback: projectcontext without user profile/locks.
-            setIframeContextMode('method2');
-            setIframeSession(null);
-            localStorage.removeItem(IFRAME_SESSION_STORAGE_KEY);
-          } else {
-            setSaveError((error as Error).message);
-          }
-        }
-      }
 
       if (hasDataUrl) {
         setIframeContextMode('method2');

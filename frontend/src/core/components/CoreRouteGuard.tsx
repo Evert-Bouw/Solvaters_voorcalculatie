@@ -1,6 +1,11 @@
 import { Fragment, ReactNode, useEffect, useState } from 'react';
 import { useLocation } from 'react-router-dom';
-import { DEFAULT_BOOTSTRAP_STATUS, fetchBootstrapStatus, fetchIframeSessionProfile } from '../api/client';
+import {
+  DEFAULT_BOOTSTRAP_STATUS,
+  exchangeIframeSession,
+  fetchBootstrapStatus,
+  fetchIframeSessionProfile,
+} from '../api/client';
 import { BootstrapStatus } from '../types';
 import CoreAccessOverlay from './CoreAccessOverlay';
 import { useAfasOauthPopup } from '../hooks/useAfasOauthPopup';
@@ -14,6 +19,29 @@ type CoreRouteGuardProps = {
     requireSettingsAllowed?: boolean;
   };
 };
+
+function readIframeExchangePayload() {
+  const params = new URLSearchParams(window.location.search);
+  const tokenurl = params.get('tokenurl')?.trim() || '';
+  const code = params.get('code')?.trim() || '';
+  const publickey = params.get('publickey')?.trim() || '';
+  const sessionid = params.get('sessionid')?.trim() || '';
+  return { tokenurl, code, publickey, sessionid };
+}
+
+function clearIframeExchangePayloadFromUrl() {
+  const url = new URL(window.location.href);
+  let changed = false;
+  ['tokenurl', 'code', 'publickey', 'sessionid'].forEach((key) => {
+    if (url.searchParams.has(key)) {
+      url.searchParams.delete(key);
+      changed = true;
+    }
+  });
+  if (!changed) return;
+  const nextUrl = `${url.pathname}${url.search}${url.hash}`;
+  window.history.replaceState({}, document.title, nextUrl);
+}
 
 export default function CoreRouteGuard({ children, scope, settingsLink }: CoreRouteGuardProps) {
   const location = useLocation();
@@ -35,6 +63,17 @@ export default function CoreRouteGuard({ children, scope, settingsLink }: CoreRo
     void (async () => {
       setLoading(true);
       try {
+        const iframeExchange = readIframeExchangePayload();
+        if (
+          iframeExchange.tokenurl &&
+          iframeExchange.code &&
+          iframeExchange.publickey &&
+          iframeExchange.sessionid
+        ) {
+          await exchangeIframeSession(iframeExchange);
+          clearIframeExchangePayloadFromUrl();
+        }
+
         const [nextBootstrapStatus, iframeResult] = await Promise.all([
           fetchBootstrapStatus(),
           fetchIframeSessionProfile().catch(() => undefined),
