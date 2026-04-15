@@ -2,7 +2,7 @@ import { Navigate, Route, Routes } from 'react-router-dom';
 import AppPage from './app/pages/AppPage';
 import AppSettingsPage from './app/pages/AppSettingsPage';
 import OrderPage from './app/pages/OrderPage';
-import CoreRouteGuard from './core/components/CoreRouteGuard';
+import GuardedRouteWithOverride from './GuardedRouteWithOverride';
 import SettingsPage from './core/pages/SettingsPage';
 
 export default function App() {
@@ -11,43 +11,43 @@ export default function App() {
       <Route
         path="/"
         element={
-          <CoreRouteGuard
+          <GuardedRouteWithOverride
             scope="app"
             settingsLink={{ to: '/settings', label: 'Naar instellingen', requireSettingsAllowed: true }}
           >
             <AppPage />
-          </CoreRouteGuard>
+          </GuardedRouteWithOverride>
         }
       />
       <Route
         path="/bestellen"
         element={
-          <CoreRouteGuard
+          <GuardedRouteWithOverride
             scope="app"
             settingsLink={{ to: '/settings', label: 'Naar instellingen', requireSettingsAllowed: true }}
           >
             <OrderPage />
-          </CoreRouteGuard>
+          </GuardedRouteWithOverride>
         }
       />
       <Route
         path="/settings"
         element={
-          <CoreRouteGuard
+          <GuardedRouteWithOverride
             scope="settings"
             settingsLink={{ to: '/settings/advanced', label: 'Geavanceerde instellingen', requireSettingsAllowed: false }}
           >
             <AppSettingsPage />
-          </CoreRouteGuard>
+          </GuardedRouteWithOverride>
         }
       />
       <Route path="/settings/app" element={<Navigate to="/settings" replace />} />
       <Route
         path="/settings/advanced"
         element={
-          <CoreRouteGuard scope="settings">
+          <GuardedRouteWithOverride scope="settings">
             <SettingsPage />
-          </CoreRouteGuard>
+          </GuardedRouteWithOverride>
         }
       />
       <Route path="*" element={<Navigate to="/" replace />} />

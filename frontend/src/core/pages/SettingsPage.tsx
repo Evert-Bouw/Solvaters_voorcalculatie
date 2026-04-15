@@ -4,6 +4,7 @@ import {
   DEFAULT_AFAS_CONNECTION,
   DEFAULT_BOOTSTRAP_STATUS,
   DEFAULT_WRITE_AUTH_STATUS,
+  exchangeIframeSession,
   fetchAppSettings,
   fetchBootstrapStatus,
   fetchAfasConnectionConfig,
@@ -64,6 +65,29 @@ function buildContextEntity(nextParamId: string, current: ContextEntitySettings)
     paramId: option?.paramId ?? nextParamId,
     queryParamName: option?.paramId ?? nextParamId,
   };
+}
+
+function readIframeExchangePayload() {
+  const params = new URLSearchParams(window.location.search);
+  const tokenurl = params.get('tokenurl')?.trim() || '';
+  const code = params.get('code')?.trim() || '';
+  const publickey = params.get('publickey')?.trim() || '';
+  const sessionid = params.get('sessionid')?.trim() || '';
+  return { tokenurl, code, publickey, sessionid };
+}
+
+function clearIframeExchangePayloadFromUrl() {
+  const url = new URL(window.location.href);
+  let changed = false;
+  ['tokenurl', 'code', 'publickey', 'sessionid'].forEach((key) => {
+    if (url.searchParams.has(key)) {
+      url.searchParams.delete(key);
+      changed = true;
+    }
+  });
+  if (!changed) return;
+  const nextUrl = `${url.pathname}${url.search}${url.hash}`;
+  window.history.replaceState({}, document.title, nextUrl);
 }
 
 function JsonPreview({ value }: { value: unknown }) {
@@ -201,7 +225,19 @@ export default function SettingsPage() {
   }
 
   useEffect(() => {
+    const iframeExchange = readIframeExchangePayload();
+
     void (async () => {
+      if (
+        iframeExchange.tokenurl &&
+        iframeExchange.code &&
+        iframeExchange.publickey &&
+        iframeExchange.sessionid
+      ) {
+        await exchangeIframeSession(iframeExchange);
+        clearIframeExchangePayloadFromUrl();
+      }
+
       try {
         const iframeResult = await fetchIframeSessionProfile();
         setIframeSessionProfile(iframeResult.session);
